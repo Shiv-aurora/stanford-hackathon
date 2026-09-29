@@ -45,6 +45,7 @@ class Session:
     last_contact: float = field(default_factory=time.monotonic)
     connected: bool = False
     closed: bool = False
+    connection_error: str | None = None
 
 
 class Snapshot(BaseModel):
@@ -120,9 +121,11 @@ class SuperGrid:
             while not session.closed:
                 elapsed = time.monotonic() - (session.last_contact if session.connected else started)
                 if elapsed > (90 if session.connected else 240):
-                    raise RuntimeError("SuperGrid coordinator is unreachable; check the run logs and public bridge URL")
+                    raise RuntimeError(session.connection_error or
+                                       "SuperGrid coordinator is unreachable; check the run logs and public bridge URL")
                 if logs.poll() is not None:
-                    raise RuntimeError("SuperGrid log stream ended before the control session closed")
+                    raise RuntimeError(session.connection_error or
+                                       "SuperGrid log stream ended before the control session closed")
                 time.sleep(1)
         except Exception as exc:
             self.fail(mission_id, str(exc))
@@ -145,6 +148,8 @@ class SuperGrid:
         # are not dispatched until the resulting signed handshake succeeds.
         for line in logs.stdout:
             clean = re.sub(r"\x1b\[[0-9;]*m", "", line).strip()
+            if clean.startswith("Bridge handshake retry: "):
+                session.connection_error = "SuperGrid callback failed: " + clean.split(": ", 1)[1][:300]
             if not clean.startswith(ANNOUNCEMENT):
                 continue
             try:
@@ -177,6 +182,7 @@ class SuperGrid:
                 raise HTTPException(403, "Invalid ServerApp signature") from None
             session.seen[nonce] = time.time()
             session.last_contact = time.monotonic()
+            session.connection_error = None
             return session
 
     def apply(self, session: Session, value: Snapshot) -> dict:

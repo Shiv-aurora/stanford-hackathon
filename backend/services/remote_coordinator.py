@@ -22,13 +22,19 @@ def run_remote(grid: Any, context: Any) -> None:
     bridge.announce()
     # The API authenticates this key by reading this run's Flower server log.
     deadline = time.monotonic() + 90
+    last_error = None
     while True:
         try:
             session = bridge.post("session", {})
             break
-        except (HTTPError, URLError):
+        except (HTTPError, URLError, TimeoutError) as exc:
+            # Report transport diagnostics only, never response bodies or mission data.
+            detail = f"HTTP {exc.code}" if isinstance(exc, HTTPError) else str(getattr(exc, "reason", exc))
+            if detail != last_error:
+                print(f"Bridge handshake retry: {detail}", flush=True)
+                last_error = detail
             if time.monotonic() >= deadline:
-                raise RuntimeError("Web bridge did not accept the ServerApp handshake") from None
+                raise RuntimeError(f"Web bridge did not accept the ServerApp handshake: {detail}") from None
             time.sleep(1)
 
     mission = StandaloneMission(session["prompt"], str(cfg["mission-id"]))

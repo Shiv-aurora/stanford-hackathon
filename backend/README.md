@@ -87,6 +87,15 @@ ordinary API. A tunnel provider can handle plaintext at TLS termination; use
 synthetic demo missions for initial connectivity testing. Temporary URLs stop
 working when the tunnel exits and may change when restarted.
 
+A public URL reachable from your browser is not sufficient: SuperGrid's outbound
+proxy must permit that destination too. If the cloud log says
+`Bridge handshake retry: Tunnel connection failed: 403 Forbidden`, the request
+was rejected before reaching the callback proxy. Ask the Flower administrator
+to allow the HTTPS callback destination (or provide an approved endpoint).
+Do not disable TLS verification or remove callback authentication to address it.
+The synthetic CLI smoke test below can still validate worker execution without
+the web callback, but does not validate the interactive web workflow.
+
 ## How the web bridge works
 
 1. FastAPI runs `flwr run . supergrid --federation ... --format json` and records

@@ -11,6 +11,7 @@ same coordinator loop as a long-lived ServerApp via services.swarm.
 
 from __future__ import annotations
 
+import json
 import time
 from typing import Any, Callable
 
@@ -230,4 +231,9 @@ def main(grid: Grid, context: Context) -> None:
             print(f"SECURITY  no worker with role {target!r}; attack skipped")
 
     swarm.run(lambda: GridTransport(grid, None, float(cfg.get("timeout", 120))), until_idle=True)
+    print("CONSTELLATION_RUN_SUMMARY " + json.dumps({
+        "run_id": str(context.run_id),
+        "workers": [{k: w.get(k) for k in ("id", "role", "node_id", "status", "quarantined", "replacement_for")}
+                    for w in mission.workers.values()],
+    }), flush=True)
     print("\n" + (mission.result or "No result."))

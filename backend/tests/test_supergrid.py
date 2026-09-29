@@ -246,3 +246,33 @@ def test_shutdown_stops_remote_run_before_returning(bridge, monkeypatch):
     cli.assert_called_once_with('flwr', ['stop', '123', 'supergrid'], timeout=10)
     assert session.closed
     assert mission.status == MissionStatus.FAILED
+
+
+@pytest.mark.parametrize("kind", ["http", "connection", "timeout"])
+def test_handshake_failure_reports_transport_reason(monkeypatch, capsys, kind):
+    from urllib.error import HTTPError, URLError
+    from services.remote_coordinator import run_remote
+    errors = {"http": HTTPError("https://bridge.example", 403, "Forbidden", {}, None),
+              "connection": URLError("certificate verify failed"), "timeout": TimeoutError("timed out")}
+    expected = {"http": "HTTP 403", "connection": "certificate verify failed", "timeout": "timed out"}
+    monkeypatch.setattr(SignedBridge, 'announce', lambda self: None)
+    monkeypatch.setattr(SignedBridge, 'post', Mock(side_effect=errors[kind]))
+    monkeypatch.setattr('services.remote_coordinator.time.monotonic', Mock(side_effect=[0, 91]))
+    context = SimpleNamespace(run_id=123, run_config={"bridge-url": "https://bridge.example", "mission-id": "m-test"})
+    with pytest.raises(RuntimeError, match=expected[kind]):
+        run_remote(None, context)
+    assert expected[kind] in capsys.readouterr().out
+
+
+def test_connection_diagnostic_is_retained_for_mission_error():
+    session = Session('m-test', run_id='123')
+    logs = SimpleNamespace(stdout=io.StringIO('Bridge handshake retry: Tunnel connection failed: 403 Forbidden\n'))
+    SuperGrid()._read_key(session, logs)
+    assert session.connection_error == 'SuperGrid callback failed: Tunnel connection failed: 403 Forbidden'
+
+
+def test_successful_handshake_clears_old_connection_error(bridge):
+    client, _, signer, session = bridge
+    session.connection_error = 'SuperGrid callback failed: HTTP 403'
+    assert signed(client, signer, 'session', {}).status_code == 200
+    assert session.connection_error is None
