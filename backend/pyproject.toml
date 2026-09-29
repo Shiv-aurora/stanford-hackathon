@@ -11,7 +11,7 @@ requires-python = ">=3.11"
 dependencies = [
     "fastapi",
     "pydantic>=2",
-    "flwr[simulation]>=1.20",
+    "flwr[simulation]>=1.39.0,<2.0",
 ]
 
 [dependency-groups]
@@ -26,6 +26,9 @@ pythonpath = ["."]
 
 [tool.flwr.app]
 publisher = "jaspergrant"
+display-name = "Constellation"
+fab-format-version = 1
+flwr-version-target = "1.39.0"
 
 [tool.flwr.app.components]
 serverapp = "services.flower_app:server_app"
