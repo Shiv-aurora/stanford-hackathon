@@ -1,7 +1,7 @@
 """Shared Pydantic models. Field names follow CONTRACT.md; do not redesign."""
 
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -54,12 +54,17 @@ class Mission(BaseModel):
     progress: float = Field(0.0, ge=0.0, le=1.0)
     result: Optional[str] = None
     approved: bool = False
-    # Optional extra: lets the UI order missions and show when each started.
+    # Optional extras: when the mission started, and which lab owns it.
     created_at: Optional[float] = None
+    lab: str = "ai"
+
+
+Lab = Literal["ai", "defense", "biotech"]
 
 
 class MissionCreate(BaseModel):
     prompt: str = Field(..., min_length=1)
+    lab: Lab = "ai"
 
 
 class SecurityEvent(BaseModel):

@@ -8,7 +8,8 @@
 // Pick the mode with `?mode=api` in the URL or VITE_CONSTELLATION_MODE=api.
 // Backend quirks are absorbed here, never in the components.
 
-import { DEMO_PROMPT, MockMission, TICK_MS } from './mock';
+import { LABS, labOf, type LabId } from './labs';
+import { MockMission, TICK_MS } from './mock';
 import type { Incident, MissionActions, MissionStatus, MissionSummary, MissionView, UiStatus, WorkerView } from './types';
 
 // ---------------------------------------------------------------------------
@@ -45,6 +46,7 @@ export interface BackendMission {
   result: string | null;
   approved: boolean;
   created_at?: number | null;
+  lab?: string;
 }
 
 export interface BackendResult {
@@ -88,8 +90,8 @@ async function http<T>(method: 'GET' | 'POST', path: string, body?: unknown): Pr
 
 export const api = {
   health: () => http<{ status: string }>('GET', '/health'),
-  listMissions: () => http<BackendMission[]>('GET', '/missions'),
-  createMission: (prompt: string) => http<BackendMission>('POST', '/mission', { prompt }),
+  listMissions: (lab: LabId) => http<BackendMission[]>('GET', `/missions?lab=${lab}`),
+  createMission: (prompt: string, lab: LabId) => http<BackendMission>('POST', '/mission', { prompt, lab }),
   getMission: (id: string) => http<BackendMission>('GET', `/mission/${encodeURIComponent(id)}`),
   getWorkers: (id: string) => http<BackendWorker[]>('GET', `/mission/${encodeURIComponent(id)}/workers`),
   attackWorker: (workerId: string) => http<AttackResponse>('POST', `/workers/${encodeURIComponent(workerId)}/attack`),
@@ -102,8 +104,6 @@ export const api = {
 
 const STARS = ['Vega', 'Altair', 'Deneb', 'Rigel', 'Sirius', 'Capella', 'Antares', 'Polaris', 'Arcturus', 'Procyon', 'Aldebaran', 'Betelgeuse'];
 const REPLACEMENT_STARS = ['Spica', 'Regulus', 'Castor', 'Pollux', 'Mimosa', 'Hadar'];
-/** Mission code names, assigned in creation order. */
-const CODE_NAMES = ['Orion', 'Halcyon', 'Meridian', 'Tessera', 'Lyra', 'Cygnus', 'Vela', 'Carina', 'Draco', 'Aquila', 'Corvus', 'Pavo'];
 const EXTRA_UNREACH = ['Other workers’ outputs', 'Any other credential'];
 /** Containment advances one step every 2 mock ticks. */
 const PHASE_MS = TICK_MS * 2;
@@ -171,14 +171,18 @@ function toWorker(w: BackendWorker, slot: number, star: string, index: number, p
 /** Same keywords the backend decomposer uses to pick its AI-research split. */
 const AI_KEYWORDS = ['model', 'training', 'transformer', 'llm', 'neural', 'optimizer', 'benchmark', 'dataset', 'gpu', 'architecture', 'fine-tun', 'inference'];
 
-function missionKind(prompt: string): string {
+function missionKind(prompt: string, lab: LabId): string {
+  // Defense and biotech missions always get their lab's decomposition.
+  if (lab !== 'ai') return labOf(lab).kind;
   const p = prompt.toLowerCase();
   return AI_KEYWORDS.filter((k) => p.includes(k)).length >= 2 ? 'Confidential AI research' : 'Confidential research';
 }
 
-function codeName(index: number): string {
-  const base = CODE_NAMES[index % CODE_NAMES.length];
-  const round = Math.floor(index / CODE_NAMES.length);
+/** Code name for a lab's `index`-th mission. */
+function codeName(lab: LabId, index: number): string {
+  const names = labOf(lab).codeNames;
+  const base = names[index % names.length];
+  const round = Math.floor(index / names.length);
   return round ? `${base} ${round + 1}` : base;
 }
 
@@ -187,13 +191,13 @@ function formatClock(ms: number): string {
   return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
 }
 
-function emptyView(prompt: string, error: string | null): MissionView {
+function emptyView(prompt: string, error: string | null, lab: LabId): MissionView {
   return {
     mode: 'api',
     id: '',
-    name: 'Orion',
+    name: labOf(lab).codeNames[0],
     prompt,
-    subtitle: 'Confidential AI research · connecting · coordinator in enclave',
+    subtitle: `${labOf(lab).kind} · connecting · coordinator in enclave`,
     status: 'created',
     workers: [],
     allWorkers: [],
@@ -204,6 +208,8 @@ function emptyView(prompt: string, error: string | null): MissionView {
     approved: false,
     error,
     missions: [],
+    lab,
+    labSwitchable: true,
   };
 }
 
@@ -211,6 +217,7 @@ type Listener = () => void;
 const STORE_KEY = 'constellation.api.mission';
 
 export class ApiMission implements MissionActions {
+  private lab: LabId = 'ai';
   private missionId: string | null = null;
   private createdAt = Date.now();
   private mission: BackendMission | null = null;
@@ -219,7 +226,9 @@ export class ApiMission implements MissionActions {
   private workers: BackendWorker[] = [];
   private result: BackendResult | null = null;
   private error: string | null = null;
-  private prompt = DEMO_PROMPT;
+  private prompt = LABS[0].demoPrompt;
+  /** A POST /mission is in flight, so the poll must not start another demo mission. */
+  private creating = false;
   /** Client-side timing so progress bars and the containment steps animate. */
   private runningSince = new Map<string, number>();
   private attackedAt = new Map<string, number>();
@@ -229,11 +238,15 @@ export class ApiMission implements MissionActions {
   /** A poll was requested while one was in flight (e.g. right after switching missions). */
   private again = false;
   private listeners = new Set<Listener>();
-  private view: MissionView = emptyView(DEMO_PROMPT, null);
+  private view: MissionView = emptyView(LABS[0].demoPrompt, null, 'ai');
 
   constructor() {
     try {
       const saved = JSON.parse(sessionStorage.getItem(STORE_KEY) || 'null');
+      if (saved && LABS.some((l) => l.id === saved.lab)) {
+        this.lab = saved.lab;
+        this.prompt = labOf(this.lab).demoPrompt;
+      }
       if (saved && typeof saved.id === 'string') {
         this.missionId = saved.id;
         this.createdAt = saved.createdAt || Date.now();
@@ -280,6 +293,25 @@ export class ApiMission implements MissionActions {
 
   reset = () => this.createMission(this.mission?.prompt || this.prompt);
 
+  selectLab = (id: LabId) => {
+    if (id === this.lab) return;
+    this.lab = id;
+    this.prompt = labOf(id).demoPrompt;
+    this.missionId = null;
+    this.mission = null;
+    this.missionList = [];
+    this.workers = [];
+    this.result = null;
+    this.runningSince.clear();
+    this.attackedAt.clear();
+    this.frozenPct.clear();
+    this.error = null;
+    this.persist(null);
+    this.emit();
+    // Opens the lab's newest mission, or starts its demo mission if it has none.
+    void this.poll();
+  };
+
   selectMission = (id: string) => {
     if (id === this.missionId) return;
     const m = this.missionList.find((x) => x.id === id);
@@ -302,15 +334,22 @@ export class ApiMission implements MissionActions {
   };
 
   createMission = (prompt: string) => {
-    this.prompt = prompt.trim() || DEMO_PROMPT;
+    const lab = this.lab;
+    this.prompt = prompt.trim() || labOf(lab).demoPrompt;
+    this.creating = true;
     api
-      .createMission(this.prompt)
+      .createMission(this.prompt, lab)
       .then((m) => {
+        this.creating = false;
+        if (lab !== this.lab) return; // switched labs meanwhile; it shows up in that lab's list
         this.missionList = [...this.missionList.filter((x) => x.id !== m.id), m];
         this.open(m);
         return this.poll();
       })
-      .catch((e: unknown) => this.fail(e));
+      .catch((e: unknown) => {
+        this.creating = false;
+        this.fail(e);
+      });
   };
 
   /** Switch the view to `m`, dropping the previous mission's client-side timing. */
@@ -324,12 +363,16 @@ export class ApiMission implements MissionActions {
     this.attackedAt.clear();
     this.frozenPct.clear();
     this.error = null;
+    this.persist(m.id);
+    this.emit();
+  }
+
+  private persist(id: string | null) {
     try {
-      sessionStorage.setItem(STORE_KEY, JSON.stringify({ id: m.id, createdAt: this.createdAt }));
+      sessionStorage.setItem(STORE_KEY, JSON.stringify({ id, createdAt: this.createdAt, lab: this.lab }));
     } catch {
       /* storage unavailable */
     }
-    this.emit();
   }
 
   private upsert(w: BackendWorker) {
@@ -359,12 +402,15 @@ export class ApiMission implements MissionActions {
     }
     this.busy = true;
     try {
-      this.missionList = await api.listMissions();
+      const lab = this.lab;
+      const list = await api.listMissions(lab);
+      if (lab !== this.lab) return; // switched labs while the list was loading
+      this.missionList = list;
       if (!this.missionId) {
-        // Reopen the newest mission rather than starting a new one on every page load.
+        // Reopen the lab's newest mission rather than starting a new one on every page load.
         const newest = this.missionList[this.missionList.length - 1];
         if (!newest) {
-          this.createMission(this.prompt);
+          if (!this.creating) this.createMission(labOf(lab).demoPrompt);
           return;
         }
         this.open(newest);
@@ -423,12 +469,12 @@ export class ApiMission implements MissionActions {
 
   private compute(): MissionView {
     const m = this.mission;
-    if (!m) return emptyView(this.prompt, this.error);
+    if (!m) return emptyView(this.prompt, this.error, this.lab);
     const listed = this.missionList.some((x) => x.id === m.id) ? this.missionList : [...this.missionList, m];
     const missions: MissionSummary[] = listed
-      .map((x, i) => ({ id: x.id, name: codeName(i), status: x.id === m.id ? m.status : x.status }))
+      .map((x, i) => ({ id: x.id, name: codeName(this.lab, i), status: x.id === m.id ? m.status : x.status }))
       .reverse();
-    const name = missions.find((x) => x.id === m.id)?.name ?? 'Orion';
+    const name = missions.find((x) => x.id === m.id)?.name ?? labOf(this.lab).codeNames[0];
     const now = Date.now();
     const byId = new Map(this.workers.map((w) => [w.id, w]));
     const ordered = [...(m.worker_ids.map((id) => byId.get(id)).filter(Boolean) as BackendWorker[])];
@@ -504,7 +550,7 @@ export class ApiMission implements MissionActions {
       id: m.id,
       name,
       prompt: m.prompt,
-      subtitle: `${missionKind(m.prompt)} · started ${formatClock(this.createdAt)} · coordinator in enclave`,
+      subtitle: `${missionKind(m.prompt, this.lab)} · started ${formatClock(this.createdAt)} · coordinator in enclave`,
       status: m.status,
       workers,
       allWorkers,
@@ -515,6 +561,8 @@ export class ApiMission implements MissionActions {
       approved: m.approved,
       error: this.error,
       missions,
+      lab: this.lab,
+      labSwitchable: true,
     };
   }
 }

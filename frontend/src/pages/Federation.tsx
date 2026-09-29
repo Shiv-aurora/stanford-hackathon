@@ -14,9 +14,9 @@ const STATS = [
 ];
 
 const LABS = [
-  { name: 'Defense Lab', n: '10', t: '2 min ago', you: false },
-  { name: 'AI Lab', n: '8', t: 'Just now', you: true },
-  { name: 'Biotech Lab', n: '12', t: '4 min ago', you: false },
+  { name: 'Defense Lab', n: '10', t: '2 min ago' },
+  { name: 'AI Lab', n: '8', t: 'Just now' },
+  { name: 'Biotech Lab', n: '12', t: '4 min ago' },
 ];
 
 const CROSSES = ['Clipped, noised weight updates', 'Round participation', 'Aggregate eval scores'];
@@ -49,7 +49,7 @@ const tableHead: CSSProperties = {
 };
 const chip: CSSProperties = { padding: '6px 10px', borderRadius: 8, background: '#1F1F23' };
 
-export function Federation() {
+export function Federation({ labName }: { labName: string }) {
   return (
     <Column
       header={
@@ -100,7 +100,7 @@ export function Federation() {
                 >
                   <span style={{ flexGrow: 1, display: 'flex', alignItems: 'center', gap: 8, fontWeight: 500 }}>
                     {l.name}
-                    {l.you && <span style={{ fontSize: 12, fontWeight: 400, color: '#8E8E8E' }}>(you)</span>}
+                    {l.name === labName && <span style={{ fontSize: 12, fontWeight: 400, color: '#8E8E8E' }}>(you)</span>}
                   </span>
                   <span style={{ width: 70, color: '#D4D4D4' }}>{l.n}</span>
                   <span style={{ width: 100, color: '#D4D4D4' }}>{l.t}</span>

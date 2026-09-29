@@ -2,6 +2,8 @@
 // types; both the mock engine and the backend adapter (lib/api.ts) produce them.
 
 /** Visual worker state. Mirrors the mockup's status table plus backend-only states. */
+import type { LabId } from './labs';
+
 export type UiStatus =
   | 'queued' // backend: queued
   | 'run' // Running
@@ -104,8 +106,12 @@ export interface MissionView {
   approved: boolean;
   /** Set when the backend cannot be reached (api mode only). */
   error: string | null;
-  /** Every mission for the sidebar, newest first (includes this one). */
+  /** Every mission of the current lab for the sidebar, newest first (includes this one). */
   missions: MissionSummary[];
+  /** Lab whose missions are shown. */
+  lab: LabId;
+  /** Whether the lab can be switched (api mode only; mock replays the AI Lab demo). */
+  labSwitchable: boolean;
 }
 
 export interface MissionActions {
@@ -117,4 +123,6 @@ export interface MissionActions {
   createMission(prompt: string): void;
   /** Open another mission from the sidebar. */
   selectMission(id: string): void;
+  /** Switch to another lab's missions. */
+  selectLab(id: LabId): void;
 }

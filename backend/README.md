@@ -14,6 +14,11 @@ uv run flwr run .                       # built-in demo: 4 workers
 uv run flwr run . --run-config 'worker-specs="[{\"id\":\"w1\",\"role\":\"data\",\"task\":\"Profile dataset\",\"allowed_context\":[\"schema\"]}]"'
 ```
 
+Missions belong to a lab (`"lab": "ai" | "defense" | "biotech"` on
+`POST /mission`, default `ai`). Defense and biotech missions get their lab's
+8-worker decomposition (see `services/decomposer.py`); `GET /missions?lab=…`
+lists one lab's missions.
+
 A worker spec has `id`, `role`, `task`, `allowed_context` and optional
 `network_identity`. Keep `num-supernodes` >= the number of workers.
 

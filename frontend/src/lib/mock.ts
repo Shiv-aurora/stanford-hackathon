@@ -268,6 +268,9 @@ export class MockMission implements MissionActions {
   /** Only Orion is simulated; the other sidebar missions are the mockup's static entries. */
   selectMission = () => {};
 
+  /** Mock mode replays the AI Lab demo only. */
+  selectLab = () => {};
+
   private emit() {
     this.view = this.compute();
     this.listeners.forEach((fn) => fn());
@@ -352,6 +355,8 @@ export class MockMission implements MissionActions {
         { id: 'meridian', name: 'Meridian', status: 'created' },
         { id: 'tessera', name: 'Tessera', status: 'created' },
       ],
+      lab: 'ai',
+      labSwitchable: false,
     };
   }
 }

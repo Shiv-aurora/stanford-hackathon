@@ -6,6 +6,7 @@ import { Compartments } from './pages/Compartments';
 import { Federation } from './pages/Federation';
 import { useMission } from './lib/useMission';
 import { K } from './lib/theme';
+import { LABS, labOf } from './lib/labs';
 
 // Hash routes: #/  ·  #/compartments[/<workerKey>]  ·  #/federation
 interface Route {
@@ -43,6 +44,7 @@ export default function App() {
   const [dialog, setDialog] = useState<'result' | 'new' | null>(null);
   const close = useCallback(() => setDialog(null), []);
 
+  const lab = labOf(view.lab);
   const phase = view.incident?.phase ?? 0;
   const missionDot = view.approved ? K.green : phase === 0 || phase === 6 ? K.blue : K.red;
   const missions = view.missions.map((m) => ({
@@ -56,7 +58,18 @@ export default function App() {
   return (
     <Frame>
       <Sky seed={SKY_SEED[route.page]} />
-      <Sidebar active={route.page} missions={missions} onSelectMission={actions.selectMission} onNewMission={() => setDialog('new')} />
+      <Sidebar
+        active={route.page}
+        missions={missions}
+        onSelectMission={actions.selectMission}
+        onNewMission={() => setDialog('new')}
+        lab={lab}
+        labs={view.labSwitchable ? LABS : []}
+        onSelectLab={(id) => {
+          actions.selectLab(id);
+          go('#/');
+        }}
+      />
       {route.page === 'overview' && (
         <Overview
           view={view}
@@ -68,7 +81,7 @@ export default function App() {
       {route.page === 'compartments' && (
         <Compartments view={view} workerKey={route.worker} onSelect={(key) => go('#/compartments/' + encodeURIComponent(key))} />
       )}
-      {route.page === 'federation' && <Federation />}
+      {route.page === 'federation' && <Federation labName={lab.name} />}
 
       {dialog === 'result' && <ResultDialog view={view} onApprove={() => actions.approve()} onClose={close} />}
       {dialog === 'new' && (

@@ -1,6 +1,7 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { buildSky } from '../lib/sky';
-import { LogoIcon, LogIcon, FederationIcon, OverviewIcon, PlusIcon, ShieldIcon } from './Icons';
+import { CheckIcon, LogoIcon, LogIcon, FederationIcon, OverviewIcon, PlusIcon, ShieldIcon } from './Icons';
+import type { Lab, LabId } from '../lib/labs';
 
 export type NavKey = 'overview' | 'compartments' | 'federation';
 
@@ -85,6 +86,20 @@ const missionItem = (active: boolean): CSSProperties =>
     ? { height: 36, display: 'flex', alignItems: 'center', gap: 10, padding: '0 12px', borderRadius: 8, textDecoration: 'none', fontSize: 14, background: '#17171A', border: '1px solid #26262A' }
     : { height: 36, display: 'flex', alignItems: 'center', gap: 10, padding: '0 12px', borderRadius: 8, textDecoration: 'none', fontSize: 14, color: '#B4B4B4' };
 
+const avatar = (size: number, font: number): CSSProperties => ({
+  width: size,
+  height: size,
+  flexShrink: 0,
+  borderRadius: '50%',
+  background: '#3A3A3A',
+  color: '#ECECEC',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  fontSize: font,
+  fontWeight: 600,
+});
+
 const dot = (c: string): CSSProperties => ({ width: 7, height: 7, borderRadius: '50%', background: c });
 
 export interface SidebarMission {
@@ -99,12 +114,21 @@ export function Sidebar({
   missions,
   onSelectMission,
   onNewMission,
+  lab,
+  labs,
+  onSelectLab,
 }: {
   active: NavKey;
   missions: SidebarMission[];
   onSelectMission: (id: string) => void;
   onNewMission: () => void;
+  lab: Lab;
+  /** Labs to switch between; empty when switching is unavailable (mock mode). */
+  labs: Lab[];
+  onSelectLab: (id: LabId) => void;
 }) {
+  const [menu, setMenu] = useState(false);
+  const switchable = labs.length > 1;
   return (
     <aside
       style={{
@@ -178,27 +202,94 @@ export function Sidebar({
           </a>
         ))}
       </div>
-      <div style={{ marginTop: 'auto', height: 52, display: 'flex', alignItems: 'center', gap: 10, padding: '0 8px', borderTop: '1px solid #1C1C1F' }}>
-        <span
+      <div style={{ position: 'relative', marginTop: 'auto', borderTop: '1px solid #1C1C1F' }}>
+        {menu && switchable && (
+          <div
+            role="menu"
+            aria-label="Switch lab"
+            style={{
+              position: 'absolute',
+              left: 0,
+              right: 0,
+              bottom: 'calc(100% + 6px)',
+              padding: 6,
+              borderRadius: 10,
+              border: '1px solid #26262A',
+              background: '#141417',
+              boxShadow: '0 12px 32px rgba(0,0,0,0.5)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 2,
+              animation: 'crise 0.15s ease-out',
+            }}
+          >
+            <div style={{ padding: '4px 8px 6px', fontSize: 12, fontWeight: 500, color: '#8E8E8E' }}>Labs</div>
+            {labs.map((l) => (
+              <button
+                key={l.id}
+                type="button"
+                role="menuitemradio"
+                aria-checked={l.id === lab.id}
+                onClick={() => {
+                  setMenu(false);
+                  onSelectLab(l.id);
+                }}
+                style={{
+                  height: 40,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  padding: '0 8px',
+                  borderRadius: 8,
+                  border: 'none',
+                  background: l.id === lab.id ? '#1F1F23' : 'transparent',
+                  color: '#ECECEC',
+                  fontSize: 14,
+                  textAlign: 'left',
+                }}
+              >
+                <span style={avatar(24, 10)}>{l.initials}</span>
+                <span style={{ flexGrow: 1 }}>{l.name}</span>
+                {l.id === lab.id && <CheckIcon size={13} stroke="#86EFAC" />}
+              </button>
+            ))}
+          </div>
+        )}
+        <button
+          type="button"
+          disabled={!switchable}
+          aria-label={switchable ? `${lab.name}, switch lab` : undefined}
+          aria-haspopup={switchable ? 'menu' : undefined}
+          aria-expanded={switchable ? menu : undefined}
+          onClick={() => setMenu((v) => !v)}
+          onBlur={(e) => {
+            if (!e.currentTarget.parentElement?.contains(e.relatedTarget as Node | null)) setMenu(false);
+          }}
           style={{
-            width: 30,
-            height: 30,
-            borderRadius: '50%',
-            background: '#3A3A3A',
-            color: '#ECECEC',
+            width: '100%',
+            height: 52,
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: 12,
-            fontWeight: 600,
+            gap: 10,
+            padding: '0 8px',
+            border: 'none',
+            background: 'transparent',
+            color: '#ECECEC',
+            textAlign: 'left',
+            cursor: switchable ? 'pointer' : 'default',
           }}
         >
-          AL
-        </span>
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <span style={{ fontSize: 14, fontWeight: 500 }}>AI Lab</span>
-          <span style={{ fontSize: 12, color: '#8E8E8E' }}>Coordinator admin</span>
-        </div>
+          <span style={avatar(30, 12)}>{lab.initials}</span>
+          <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
+            <span style={{ fontSize: 14, fontWeight: 500 }}>{lab.name}</span>
+            <span style={{ fontSize: 12, color: '#8E8E8E' }}>Coordinator admin</span>
+          </div>
+          {switchable && (
+            <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="#8E8E8E" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M7 15l5 5 5-5M7 9l5-5 5 5" />
+            </svg>
+          )}
+        </button>
       </div>
     </aside>
   );

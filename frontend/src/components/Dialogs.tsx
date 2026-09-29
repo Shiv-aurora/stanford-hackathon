@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { CheckIcon, CrossIcon, LockIcon } from './Icons';
 import { MONO, OUTPUT_PILL, STY } from '../lib/theme';
+import { labOf } from '../lib/labs';
 import type { MissionView } from '../lib/types';
 
 // The mockup has no result or composer screens; these dialogs are built only
@@ -149,7 +150,7 @@ export function ResultDialog({ view, onApprove, onClose }: { view: MissionView; 
         {view.approved ? (
           <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 500, color: '#86EFAC' }}>
             <CheckIcon />
-            Approved by AI Lab · released from the enclave
+            Approved by {labOf(view.lab).name} · released from the enclave
           </span>
         ) : (
           <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#8E8E8E' }}>

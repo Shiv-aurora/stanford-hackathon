@@ -11,7 +11,7 @@ import importlib
 import os
 import time
 import uuid
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -149,9 +149,9 @@ def health() -> Dict[str, Any]:
 @app.post("/mission", response_model=Mission)
 def create_mission(body: MissionCreate, background: BackgroundTasks) -> Mission:
     mission = store.add_mission(
-        Mission(id=f"m-{uuid.uuid4().hex[:8]}", prompt=body.prompt, created_at=time.time())
+        Mission(id=f"m-{uuid.uuid4().hex[:8]}", prompt=body.prompt, created_at=time.time(), lab=body.lab)
     )
-    for i, spec in enumerate(decompose_mission(body.prompt), start=1):
+    for i, spec in enumerate(decompose_mission(body.prompt, domain=body.lab), start=1):
         store.add_worker(Worker(
             id=f"{mission.id}-w{i:02d}",
             mission_id=mission.id,
@@ -169,10 +169,10 @@ def create_mission(body: MissionCreate, background: BackgroundTasks) -> Mission:
 
 
 @app.get("/missions", response_model=List[Mission])
-def list_missions() -> List[Mission]:
-    """Every mission in creation order (in-memory, so empty after a restart)."""
+def list_missions(lab: Optional[str] = None) -> List[Mission]:
+    """Missions in creation order, optionally for one lab (in-memory, so empty after a restart)."""
     with store.lock:
-        return list(store.missions.values())
+        return [m for m in store.missions.values() if lab is None or m.lab == lab]
 
 
 @app.get("/mission/{mission_id}", response_model=Mission)

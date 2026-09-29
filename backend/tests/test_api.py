@@ -43,6 +43,19 @@ def test_list_missions(client):
     assert all(m["created_at"] for m in listed)
 
 
+def test_lab_missions(client):
+    ai = _create(client)
+    resp = client.post("/mission", json={"prompt": "Protect the base from drones.", "lab": "defense"})
+    assert resp.status_code == 200
+    defense = resp.json()
+    assert defense["lab"] == "defense" and ai["lab"] == "ai"
+    roles = [w["role"] for w in client.get(f"/mission/{defense['id']}/workers").json()]
+    assert roles[0] == "threat_analyst" and len(roles) == 8
+    assert [m["id"] for m in client.get("/missions?lab=defense").json()] == [defense["id"]]
+    assert [m["id"] for m in client.get("/missions?lab=ai").json()] == [ai["id"]]
+    assert client.post("/mission", json={"prompt": "x", "lab": "navy"}).status_code == 422
+
+
 def test_empty_prompt_rejected(client):
     assert client.post("/mission", json={"prompt": ""}).status_code == 422
 

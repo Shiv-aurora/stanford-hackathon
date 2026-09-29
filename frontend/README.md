@@ -18,7 +18,7 @@ npm run preview    # serve dist/ on http://localhost:4173
 
 In api mode the browser calls `/api/*`, which Vite proxies to `VITE_API_TARGET` (default `http://127.0.0.1:8000`) in both `dev` and `preview`. Set `VITE_API_BASE` to call the backend directly instead (it allows CORS). See `.env.example`.
 
-In api mode the sidebar lists every mission on the backend (`GET /missions`), newest first, with code names in creation order (Orion, Halcyon, Meridian, …). Clicking one opens it; a page load reopens the newest mission instead of creating one. In mock mode the list is the mockup's static one.
+In api mode the profile block at the bottom of the sidebar switches between the three labs (AI, Defense, Biotech; see `src/lib/labs.ts`). The sidebar lists the current lab's missions (`GET /missions?lab=…`), newest first, with code names in creation order; clicking one opens it. Opening a lab reopens its newest mission, or starts the lab's demo mission if it has none. In mock mode the list is the mockup's static one and the lab is fixed to AI Lab.
 
 Mock extras: `?speed=3` runs the simulation 3× faster (0.25–10).
 
