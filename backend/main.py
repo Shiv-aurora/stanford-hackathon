@@ -43,14 +43,23 @@ def _load(module: str, name: str, fallback: Callable) -> Callable:
         return fallback
 
 
-# Wiring points for the other subsystems. Adjust names here after merge.
+def _load_optional(module: str, name: str) -> Callable | None:
+    if FORCE_FALLBACK:
+        return None
+    try:
+        return getattr(importlib.import_module(module), name)
+    except (ImportError, AttributeError):
+        return None
+
+
+# Wiring points for the other subsystems.
 decompose_mission = _load("services.decomposer", "decompose_mission", demo_seed.decompose_mission)
 run_workers = _load(
     "services.flower_runtime",
     "run_workers",
     lambda specs, on_update=None: demo_seed.run_workers(specs, on_update, FALLBACK_DELAY),
 )
-quarantine_and_replace = _load("services.security", "quarantine_and_replace", demo_seed.quarantine_and_replace)
+security_attack = _load_optional("services.security", "attack_worker")
 synthesize = _load("services.coordinator", "synthesize", demo_seed.synthesize)
 calculate_progress = _load("services.coordinator", "progress", demo_seed.progress)
 calculate_metrics = _load("services.coordinator", "metrics", demo_seed.metrics)
@@ -118,7 +127,11 @@ def _execute(worker_ids: List[str]) -> None:
     for worker_id in worker_ids:
         worker = store.get_worker(worker_id)
         if worker is not None:
-            specs.append(worker.model_dump(mode="json"))
+            spec = worker.model_dump(mode="json")
+            # `context` is intentionally excluded from API serialization, so
+            # add the worker's own private fragment explicitly for execution.
+            spec["context"] = dict(worker.context)
+            specs.append(spec)
     try:
         results = run_workers(specs, on_update=_apply_update)
         for result in results or []:
@@ -144,6 +157,7 @@ def create_mission(body: MissionCreate, background: BackgroundTasks) -> Mission:
             task=_get(spec, "task"),
             allowed_context=list(_get(spec, "allowed_context", [])),
             blocked_context=list(_get(spec, "blocked_context", [])),
+            context=dict(_get(spec, "context", {})),
             context_exposure=_get(spec, "context_exposure", 0.0),
             network_identity=_get(spec, "network_identity") or f"node-{i:02d}",
         ))
@@ -175,17 +189,34 @@ def attack_worker(worker_id: str, background: BackgroundTasks) -> AttackResponse
         if mission.status == MissionStatus.APPROVED:
             raise HTTPException(status_code=409, detail="mission already approved")
 
-        n = len(mission.worker_ids) + 1
-        outcome = quarantine_and_replace(worker, f"{mission.id}-w{n:02d}", f"node-{n:02d}")
-        quarantined, replacement = _get(outcome, "quarantined"), _get(outcome, "replacement")
+        if security_attack is not None:
+            # Real security path: the module mutates the compromised worker in
+            # place and returns (security_event, clean_replacement).
+            event_data, replacement = security_attack(worker, store.mission_workers(mission.id))
+            if replacement is None:
+                raise HTTPException(status_code=500, detail="security replacement was not created")
+            quarantined = worker
+            detail = _get(event_data, "message", "worker quarantined")
+            event_timestamp = float(_get(event_data, "timestamp", time.time()))
+        else:
+            # Deterministic fallback kept for demo resilience.
+            n = len(mission.worker_ids) + 1
+            outcome = demo_seed.quarantine_and_replace(
+                worker, f"{mission.id}-w{n:02d}", f"node-{n:02d}"
+            )
+            quarantined = _get(outcome, "quarantined")
+            replacement = _get(outcome, "replacement")
+            detail = _get(outcome, "detail", "worker quarantined")
+            event_timestamp = time.time()
+
         store.workers[worker.id] = quarantined
         store.add_worker(replacement)
         event = SecurityEvent(
             mission_id=mission.id,
             worker_id=worker.id,
             replacement_id=replacement.id,
-            detail=_get(outcome, "detail", "worker quarantined"),
-            timestamp=time.time(),
+            detail=detail,
+            timestamp=event_timestamp,
         )
         store.add_event(event)
         _refresh_mission(mission.id)
