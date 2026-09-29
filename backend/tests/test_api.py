@@ -78,6 +78,8 @@ def test_attack_quarantines_and_replaces(client):
     assert rep["task"] == bad["task"]
     assert rep["allowed_context"] == bad["allowed_context"]
     assert rep["network_identity"] != bad["network_identity"]
+    assert rep["status"] == "queued"
+    assert rep["started_at"] is None and rep["finished_at"] is None
     assert body["event"]["worker_id"] == target
     assert "Prompt injection" in body["event"]["detail"]
 

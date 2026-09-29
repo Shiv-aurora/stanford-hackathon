@@ -56,6 +56,11 @@ MODEL_TIMEOUT_S = float(os.environ.get("CONSTELLATION_MODEL_TIMEOUT", "30"))
 
 StatusCallback = Callable[["WorkerResult"], None]
 
+# One Flower simulation at a time per process: overlapping run_simulation
+# calls share the in-process Ray cluster and deadlock. A replacement worker
+# dispatched mid-mission waits for the running simulation, then gets its own.
+_FLOWER_LOCK = threading.Lock()
+
 
 @dataclass
 class WorkerResult:
@@ -264,16 +269,17 @@ def _run_flower(payloads: list[dict[str, Any]], tracker: _Tracker) -> None:
         except BaseException as exc:  # surfaced after the simulation stops
             errors.append(exc)
 
-    run_simulation(
-        server_app=server,
-        client_app=client_app,
-        num_supernodes=n,
-        backend_config={
-            "client_resources": {"num_cpus": 1, "num_gpus": 0.0},
-            # Logical CPUs only: lets every worker run concurrently.
-            "init_args": {"num_cpus": n, "include_dashboard": False, "log_to_driver": False},
-        },
-    )
+    with _FLOWER_LOCK:
+        run_simulation(
+            server_app=server,
+            client_app=client_app,
+            num_supernodes=n,
+            backend_config={
+                "client_resources": {"num_cpus": 1, "num_gpus": 0.0},
+                # Logical CPUs only: lets every worker run concurrently.
+                "init_args": {"num_cpus": n, "include_dashboard": False, "log_to_driver": False},
+            },
+        )
     if errors:
         raise errors[0]
 

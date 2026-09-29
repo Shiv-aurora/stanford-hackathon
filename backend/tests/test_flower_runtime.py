@@ -59,6 +59,22 @@ def test_flower_path_runs_each_worker_on_its_own_node():
     assert [r.output for r in results] == [r.output for r in local]
 
 
+@pytest.mark.skipif(not rt.flower_available(), reason="flwr[simulation] not installed")
+def test_overlapping_flower_runs_do_not_deadlock():
+    # A replacement dispatched while the mission's simulation is still running.
+    results = {}
+
+    def run(name, specs):
+        results[name] = run_workers(specs, use_flower=True)
+
+    first = threading.Thread(target=run, args=("mission", SPECS[:3]))
+    first.start()
+    run("replacement", [{**SPECS[0], "id": "w1-r1"}])
+    first.join()
+    assert [r.runtime for r in results["mission"] + results["replacement"]] == ["flower"] * 4
+    assert all(r.status == COMPLETE for r in results["mission"] + results["replacement"])
+
+
 def test_local_fallback_forced():
     results, events = collect(use_flower=False)
     assert_results(results, events, runtime="local")

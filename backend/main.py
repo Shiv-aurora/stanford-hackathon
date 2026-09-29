@@ -195,6 +195,11 @@ def attack_worker(worker_id: str, background: BackgroundTasks) -> AttackResponse
             event_data, replacement = security_attack(worker, store.mission_workers(mission.id))
             if replacement is None:
                 raise HTTPException(status_code=500, detail="security replacement was not created")
+            # The security module assigns plain status strings; keep the enum type.
+            worker.status = WorkerStatus(worker.status)
+            replacement.status = WorkerStatus(replacement.status)
+            # A fresh run: don't inherit the compromised worker's timing/error.
+            replacement.started_at = replacement.finished_at = replacement.error = None
             quarantined = worker
             detail = _get(event_data, "message", "worker quarantined")
             event_timestamp = float(_get(event_data, "timestamp", time.time()))
