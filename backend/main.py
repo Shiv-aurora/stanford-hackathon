@@ -1,6 +1,6 @@
 """Constellation API shell.
 
-Run from backend/:  uvicorn main:app --reload
+Run from backend/: uv run uvicorn main:app (single process, no auto-reload).
 
 Subsystems are resolved at import time: the real module under services/ is used
 when present, otherwise the deterministic stand-in from demo_seed.py. Set
@@ -29,6 +29,7 @@ from models import (
     WorkerStatus,
 )
 from state import store
+from services.supergrid import router as supergrid_router, supergrid
 
 FORCE_FALLBACK = os.environ.get("CONSTELLATION_FALLBACK") == "1"
 # Per-worker delay for the fallback runtime so the UI can watch status transitions.
@@ -70,7 +71,12 @@ get_swarm = _load_optional("services.swarm", "get_swarm")
 SWARM_TIMEOUT = float(os.environ.get("CONSTELLATION_SWARM_TIMEOUT", "120"))
 
 
+def uses_supergrid() -> bool:
+    return not FORCE_FALLBACK and os.environ.get("CONSTELLATION_RUNTIME", "supergrid") == "supergrid"
+
+
 app = FastAPI(title="Constellation")
+app.include_router(supergrid_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -83,7 +89,7 @@ app.add_middleware(
 @app.on_event("startup")
 def _warm_coordinator() -> None:
     # Start the Flower coordinator in the background so the first mission is fast.
-    if get_swarm is not None:
+    if not uses_supergrid() and get_swarm is not None:
         threading.Thread(target=get_swarm, name="constellation-warmup", daemon=True).start()
 
 
@@ -132,7 +138,7 @@ def _apply_update(update: Any, synthesize_now: bool = True) -> None:
         # Late results from a quarantined worker must never land.
         if worker is None or worker.quarantined:
             return
-        for field in ("status", "output", "error", "started_at", "finished_at"):
+        for field in ("status", "output", "error", "started_at", "finished_at", "node_id", "runtime"):
             value = _get(update, field)
             if value is not None:
                 setattr(worker, field, WorkerStatus(value) if field == "status" else value)
@@ -217,6 +223,8 @@ def _await(future: Any) -> Any:
         return future.result(timeout=SWARM_TIMEOUT)
     except HTTPException:
         raise
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"coordinator unavailable: {exc}") from exc
 
@@ -224,6 +232,13 @@ def _await(future: Any) -> Any:
 @app.post("/mission", response_model=Mission)
 def create_mission(body: MissionCreate, background: BackgroundTasks) -> Mission:
     mission = store.add_mission(Mission(id=f"m-{uuid.uuid4().hex[:8]}", prompt=body.prompt))
+    if uses_supergrid():
+        try:
+            supergrid.submit(mission)
+        except ValueError as exc:
+            mission.status, mission.error = MissionStatus.FAILED, str(exc)
+            raise HTTPException(503, str(exc)) from exc
+        return mission
     if get_swarm is not None:
         # The coordinator decomposes and dispatches inside the Flower ServerApp.
         _await(get_swarm().submit_mission(mission.id, _ApiMission(mission.id)))
@@ -296,6 +311,11 @@ def attack_worker(worker_id: str, background: BackgroundTasks) -> AttackResponse
     worker = store.get_worker(worker_id)
     if worker is None:
         raise HTTPException(status_code=404, detail="worker not found")
+    if _mission_or_404(worker.mission_id).runtime == "supergrid":
+        try:
+            return _await(supergrid.attack(worker_id))
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
     swarm = get_swarm() if get_swarm is not None else None
     if swarm is not None and swarm.has_mission(worker.mission_id):
         # The coordinator quarantines and re-dispatches inside the ServerApp.
@@ -321,6 +341,13 @@ def get_result(mission_id: str) -> MissionResult:
 
 @app.post("/mission/{mission_id}/approve", response_model=Mission)
 def approve_mission(mission_id: str) -> Mission:
+    mission = _mission_or_404(mission_id)
+    if mission.runtime == "supergrid":
+        try:
+            supergrid.approve(mission)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        return mission
     with store.lock:
         mission = _mission_or_404(mission_id)
         if mission.status not in (MissionStatus.COMPLETE, MissionStatus.APPROVED):
@@ -328,3 +355,8 @@ def approve_mission(mission_id: str) -> Mission:
         mission.approved = True
         mission.status = MissionStatus.APPROVED
         return mission
+
+
+@app.on_event("shutdown")
+def _stop_remote_runs() -> None:
+    supergrid.shutdown()

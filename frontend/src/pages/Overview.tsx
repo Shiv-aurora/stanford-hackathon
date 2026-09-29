@@ -171,7 +171,7 @@ export function Overview({
   // --- detail card under the map ------------------------------------------
   let d: { title: string; sub: string; dot: string; pill: null | [string, string, string]; body: string };
   if (sel === null || (sel === N && phase < 5) || (hit && sel === t && phase >= 5) || (sel !== N && !rows[sel])) {
-    d = { title: 'Coordinator', sub: 'enclave', dot: '#ECECEC', pill: null, body: 'Holds the full mission. Hover a star to see what that worker can see.' };
+    d = { title: 'Coordinator', sub: view.runtime === 'supergrid' ? 'SuperGrid ServerApp' : 'trusted coordinator', dot: '#ECECEC', pill: null, body: 'Holds the full mission. Hover a star to see what that worker can see.' };
   } else {
     const w: WorkerView = inc && sel === t ? inc.attacked : sel === N ? rows[t] : rows[sel];
     const S = STY[w.status];
@@ -229,13 +229,13 @@ export function Overview({
                 title={view.error}
                 style={{ fontSize: 12, fontWeight: 500, padding: '3px 8px', borderRadius: 999, color: '#FCA5A5', background: 'rgba(239,68,68,0.16)', whiteSpace: 'nowrap' }}
               >
-                API offline
+                Mission needs attention
               </span>
             )}
             {showSim && (
               <button
                 type="button"
-                disabled={!target}
+                disabled={!target || (view.runtime === 'supergrid' && !view.controlAvailable)}
                 onClick={() => target && actions.attack(target.key)}
                 style={hasResult ? ghostBtn : pillBtn}
               >

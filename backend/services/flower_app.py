@@ -102,17 +102,27 @@ class GridTransport:
             time.sleep(0.05)
         self._grid = grid
         self._nodes = node_ids
-        self._load = {n: 0 for n in node_ids}
-        self._by_msg: dict[str, tuple[str, int]] = {}  # message id -> (worker id, node)
+        self._used: set[int] = set()
+        self._timeout = timeout
+        self._by_msg: dict[str, tuple[str, int, float]] = {}
+
+    def require_capacity(self, count: int) -> None:
+        available = len(set(self._nodes) - self._used)
+        if available < count:
+            raise RuntimeError(f"Need {count} unused SuperNodes; only {available} available. "
+                               "Each worker requires its own node, including replacements.")
 
     def submit(self, payload: dict[str, Any], avoid: set[str]) -> str:
-        # Least-loaded SuperNode, never the node of a quarantined worker.
-        candidates = [n for n in self._nodes if str(n) not in avoid] or self._nodes
-        node = min(candidates, key=lambda n: self._load[n])
-        msg = Message(RecordDict({"task": ConfigRecord(payload)}), dst_node_id=node, message_type="query")
+        # Never reuse a node during this run, even after its worker completes.
+        candidates = [n for n in self._nodes if n not in self._used and str(n) not in avoid]
+        if not candidates:
+            raise RuntimeError("No unused SuperNode available for this worker")
+        node = candidates[0]
+        self._used.add(node)
+        msg = Message(RecordDict({"task": ConfigRecord(payload)}), dst_node_id=node,
+                      message_type="query", ttl=self._timeout)
         (msg_id,) = self._grid.push_messages([msg])
-        self._by_msg[msg_id] = (payload["id"], node)
-        self._load[node] += 1
+        self._by_msg[msg_id] = (payload["id"], node, time.monotonic() + self._timeout)
         return str(node)
 
     def poll(self) -> list[dict[str, Any]]:
@@ -120,14 +130,21 @@ class GridTransport:
             return []
         updates = []
         for reply in self._grid.pull_messages(list(self._by_msg)):
-            worker_id, node = self._by_msg.pop(reply.metadata.reply_to_message_id)
-            self._load[node] -= 1
+            entry = self._by_msg.pop(reply.metadata.reply_to_message_id, None)
+            if entry is None:
+                continue
+            worker_id, node, _ = entry
             if reply.has_error():
                 updates.append({"worker_id": worker_id, "status": FAILED, "error": reply.error.reason})
             else:
                 result = reply.content["result"]
                 updates.append({"worker_id": worker_id, "status": COMPLETE,
                                 "output": result["output"], "source": result["source"]})
+        for msg_id, (worker_id, _, deadline) in list(self._by_msg.items()):
+            if time.monotonic() >= deadline:
+                self._by_msg.pop(msg_id)
+                updates.append({"worker_id": worker_id, "status": FAILED,
+                                "error": "SuperNode response timed out"})
         return updates
 
     def close(self) -> None:
@@ -137,25 +154,28 @@ class GridTransport:
 class StandaloneMission:
     """Trusted mission bookkeeping for `flwr run` (plain dicts, no API)."""
 
-    def __init__(self, prompt: str) -> None:
+    def __init__(self, prompt: str, mission_id: str = "mission") -> None:
         self.prompt = prompt
+        self.mission_id = mission_id
         self.workers: dict[str, dict[str, Any]] = {}
         self.result: str | None = None
 
     def decompose(self) -> list[dict[str, Any]]:
         from services.decomposer import decompose_mission
 
-        for spec in decompose_mission(self.prompt, "mission"):
+        for spec in decompose_mission(self.prompt, self.mission_id):
             worker = {**spec.model_dump(), "status": "queued", "output": None,
+                      "mission_id": self.mission_id,
                       "tainted": False, "quarantined": False, "replacement_for": None}
             self.workers[worker["id"]] = worker
         return list(self.workers.values())
 
     def on_update(self, update: dict[str, Any]) -> None:
         worker = self.workers[update["worker_id"]]
-        worker.update({k: v for k, v in update.items() if k in ("status", "output", "error")})
-        detail = update.get("output") or update.get("error") or update.get("node_id") or ""
-        print(f"{worker['id']:<28} {update['status']:<9} {detail}".rstrip())
+        worker.update({k: v for k, v in update.items()
+                       if k in ("status", "output", "error", "node_id", "runtime", "started_at", "finished_at")})
+        if update.get("node_id"):
+            worker["network_identity"] = f"supernode-{update['node_id']}"
 
     def attack(self, worker_id: str) -> tuple[dict[str, Any], dict[str, Any] | None]:
         from services.security import attack_worker
@@ -189,6 +209,10 @@ def main(grid: Grid, context: Context) -> None:
     from services.swarm import Swarm
 
     cfg = context.run_config
+    if cfg.get("bridge-url"):
+        from services.remote_coordinator import run_remote
+        run_remote(grid, context)
+        return
     prompt = str(cfg.get("prompt", "")) or DEMO_MISSION
     mission = StandaloneMission(prompt)
     swarm = Swarm()

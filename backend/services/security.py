@@ -148,6 +148,8 @@ def create_replacement(worker: Any, workers: Iterable[Any] = ()) -> Any:
         output=None,
         network_identity=_next_network_identity(taken_idents),
         replacement_for=_get(worker, "id"),
+        **{key: None for key in ("node_id", "runtime", "error", "started_at", "finished_at")
+           if isinstance(worker, dict) or hasattr(worker, key)},
         allowed_context=list(_get(worker, "allowed_context") or []),
         blocked_context=list(_get(worker, "blocked_context") or []),
     )

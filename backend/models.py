@@ -44,6 +44,8 @@ class Worker(BaseModel):
     error: Optional[str] = None
     started_at: Optional[float] = None
     finished_at: Optional[float] = None
+    node_id: Optional[str] = None
+    runtime: Optional[str] = None
 
 
 class Mission(BaseModel):
@@ -54,6 +56,11 @@ class Mission(BaseModel):
     progress: float = Field(0.0, ge=0.0, le=1.0)
     result: Optional[str] = None
     approved: bool = False
+    runtime: Optional[str] = None
+    run_id: Optional[str] = None
+    federation: Optional[str] = None
+    error: Optional[str] = None
+    control_available: bool = False
 
 
 class MissionCreate(BaseModel):

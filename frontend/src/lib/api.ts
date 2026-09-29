@@ -34,9 +34,16 @@ export interface BackendWorker {
   error?: string | null;
   started_at?: number | null;
   finished_at?: number | null;
+  node_id?: string | null;
+  runtime?: string | null;
 }
 
 export interface BackendMission {
+  runtime?: string;
+  run_id?: string | null;
+  federation?: string | null;
+  error?: string | null;
+  control_available?: boolean;
   id: string;
   prompt: string;
   status: MissionStatus;
@@ -109,12 +116,6 @@ function displayId(id: string, fallback: number): string {
   return 'W-' + String(m ? Number(m[1]) : fallback).padStart(2, '0');
 }
 
-function sandboxId(id: string): string {
-  let h = 2166136261;
-  for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 16777619);
-  return 'sbx-' + (h >>> 0).toString(16).slice(-4).padStart(4, '0');
-}
-
 function baseStatus(s: BackendWorkerStatus): UiStatus {
   switch (s) {
     case 'queued':
@@ -146,8 +147,8 @@ function toWorker(w: BackendWorker, slot: number, star: string, index: number, p
     task: w.task,
     holds: allowed.length ? allowed.join(' · ') : 'No context',
     share: Math.round((w.context_exposure ?? 0) * 100),
-    ip: w.network_identity || '—',
-    sandbox: sandboxId(w.id),
+    ip: w.node_id ? `SuperNode ${w.node_id}` : w.network_identity || 'Unassigned',
+    sandbox: w.node_id ? 'ClientApp' : 'Awaiting assignment',
     status,
     pct,
     isNew: !!w.replacement_for,
@@ -164,18 +165,13 @@ function toWorker(w: BackendWorker, slot: number, star: string, index: number, p
   };
 }
 
-function formatClock(ms: number): string {
-  const d = new Date(ms);
-  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
-}
-
 function emptyView(prompt: string, error: string | null): MissionView {
   return {
     mode: 'api',
     id: '',
     name: 'Orion',
     prompt,
-    subtitle: 'Confidential AI research · connecting · coordinator in enclave',
+    subtitle: 'Confidential AI research · connecting to coordinator',
     status: 'created',
     workers: [],
     allWorkers: [],
@@ -441,7 +437,11 @@ export class ApiMission implements MissionActions {
       id: m.id,
       name: 'Orion',
       prompt: m.prompt,
-      subtitle: `Confidential AI research · started ${formatClock(this.createdAt)} · coordinator in enclave`,
+      subtitle: `Confidential AI research · ${m.runtime === 'supergrid' ? 'ServerApp on SuperGrid' : 'Local coordinator'} · ${m.run_id ? `run ${m.run_id}` : 'awaiting run'}`,
+      runtime: m.runtime,
+      runId: m.run_id,
+      federation: m.federation,
+      controlAvailable: m.control_available,
       status: m.status,
       workers,
       allWorkers,
@@ -450,7 +450,7 @@ export class ApiMission implements MissionActions {
       doneCount,
       result: this.result?.result ?? m.result,
       approved: m.approved,
-      error: this.error,
+      error: this.error ?? m.error ?? null,
     };
   }
 }
@@ -468,7 +468,7 @@ export type Mode = 'mock' | 'api';
 export function resolveMode(): Mode {
   const q = new URLSearchParams(window.location.search).get('mode');
   if (q === 'api' || q === 'mock') return q;
-  return import.meta.env.VITE_CONSTELLATION_MODE === 'api' ? 'api' : 'mock';
+  return import.meta.env.VITE_CONSTELLATION_MODE === 'mock' ? 'mock' : 'api';
 }
 
 export function createMissionSource(mode: Mode = resolveMode()): MissionSource {

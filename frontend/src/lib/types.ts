@@ -77,6 +77,10 @@ export interface Incident {
 
 export interface MissionView {
   mode: 'mock' | 'api';
+  runtime?: string;
+  runId?: string | null;
+  federation?: string | null;
+  controlAvailable?: boolean;
   id: string;
   /** Code name shown in the UI, e.g. "Orion". */
   name: string;

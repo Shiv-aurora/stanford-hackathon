@@ -13,8 +13,8 @@ npm run preview    # serve dist/ on http://localhost:4173
 
 | Mode | How | What it does |
 | --- | --- | --- |
-| `mock` (default) | nothing to configure | Deterministic replay of the demo mission; no backend needed. |
-| `api` | `?mode=api` in the URL, or `VITE_CONSTELLATION_MODE=api` | Talks to the FastAPI backend from `CONTRACT.md`. |
+| `mock` | `?mode=mock` | Deterministic replay of the demo mission; no backend needed. |
+| `api` (default) | no URL override, or `?mode=api` | Talks to FastAPI, which submits missions to SuperGrid. |
 
 In api mode the browser calls `/api/*`, which Vite proxies to `VITE_API_TARGET` (default `http://127.0.0.1:8000`) in both `dev` and `preview`. Set `VITE_API_BASE` to call the backend directly instead (it allows CORS). See `.env.example`.
 
@@ -43,3 +43,5 @@ src/
 ```
 
 The backend has no per-worker progress, so in api mode running workers ease toward 95% until they report `complete`. Containment steps are paced on the client and capped by backend state: no replacement yet caps at Revoke, a queued replacement at Replace, and a running one at Continue.
+
+In API mode, Federation shows the current SuperGrid run and actual node assignments. Follow [backend setup](../backend/README.md) for Flower login and the HTTPS callback bridge. Mock federation statistics remain illustrative.

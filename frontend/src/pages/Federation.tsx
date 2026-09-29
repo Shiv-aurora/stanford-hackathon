@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react';
+import { useMission } from '../lib/useMission';
 import { Column, crumbHere } from '../components/Shell';
 import { ArrowIcon, CheckIcon, CrossIcon } from '../components/Icons';
 import { MONO } from '../lib/theme';
@@ -50,6 +51,31 @@ const tableHead: CSSProperties = {
 const chip: CSSProperties = { padding: '6px 10px', borderRadius: 8, background: '#1F1F23' };
 
 export function Federation() {
+  const { view } = useMission();
+  if (view.mode === 'api') {
+    return <Column header={<span style={crumbHere}>Federation</span>}>
+      <main style={{ padding: 32, display: 'flex', flexDirection: 'column', gap: 24 }}>
+        <h1 style={{ margin: 0 }}>SuperGrid federation</h1>
+        <p style={{ color: '#B4B4B4' }}>
+          {view.federation ?? 'Waiting for a mission'} · {view.runId ? `Run ${view.runId}` : 'Awaiting run assignment'}
+        </p>
+        <section style={{ ...panel, padding: 24, textAlign: 'center' }}>
+          <strong>{view.runtime === 'supergrid' ? 'SuperGrid → ServerApp' : 'Local coordinator'}</strong>
+          <p>Trusted coordinator · splits the mission and collects valid results</p>
+          <div style={{ fontSize: 24 }}>↓</div>
+          <p>One worker per SuperNode · each node runs a ClientApp</p>
+        </section>
+        <section style={{ ...panel, padding: 24 }}>
+          {view.allWorkers.length === 0 && <p>Waiting for the ServerApp to assign workers.</p>}
+          {view.allWorkers.map(w => <div key={w.key} style={{ display: 'flex', gap: 24, padding: '12px 0', borderBottom: '1px solid #242428' }}>
+            <span style={{ flex: 1 }}>{w.role}</span><span style={{ flex: 2 }}>{w.ip}</span><span>{w.status}</span>
+          </div>)}
+        </section>
+        <p style={{ color: '#8E8E8E' }}>Nodes remain assigned for the entire run. Replacements need a fresh node. Physical isolation depends on the federation deployment.</p>
+        {view.error && <p role="alert" style={{ color: '#FCA5A5' }}>{view.error}</p>}
+      </main>
+    </Column>;
+  }
   return (
     <Column
       header={

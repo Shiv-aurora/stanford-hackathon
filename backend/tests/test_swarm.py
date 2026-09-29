@@ -82,7 +82,7 @@ def test_api_delegates_mission_and_attack_to_coordinator(monkeypatch):
 
 @pytest.mark.skipif(not flower_available(), reason="flwr[simulation] not installed")
 def test_coordinator_runs_inside_flower_serverapp(monkeypatch):
-    monkeypatch.setattr(swarm_mod, "NUM_NODES", 4)
+    monkeypatch.setattr(swarm_mod, "NUM_NODES", 9)
     swarm = swarm_mod.get_swarm(use_flower=True)
     try:
         assert swarm.runtime == "flower"

@@ -119,7 +119,8 @@ class Swarm:
 
     # -- coordinator loop (runs inside the Flower ServerApp) ----------------
 
-    def run(self, make_transport: Callable[[], Transport], until_idle: bool = False) -> None:
+    def run(self, make_transport: Callable[[], Transport], until_idle: bool = False,
+            on_tick: Callable[[], None] | None = None) -> None:
         """Coordinator main loop. Returns when stopped (or idle, if until_idle)."""
         self.alive = True
         transport: Transport | None = None
@@ -132,6 +133,8 @@ class Swarm:
                 for update in transport.poll():
                     self._on_result(update)
                 self._finish_missions()
+                if on_tick is not None:
+                    on_tick()
                 if until_idle and self._inbox.empty() and all(m.finished for m in self._missions.values()):
                     break
                 time.sleep(TICK_S)
@@ -158,6 +161,8 @@ class Swarm:
 
     def _start_mission(self, transport: Transport, key: str, handler: Any) -> list[Any]:
         specs = handler.decompose()
+        if hasattr(transport, "require_capacity"):
+            transport.require_capacity(len(specs))
         mission = self._missions[key] = _Mission(handler=handler)
         for spec in specs:
             self._dispatch(transport, key, mission, spec)
@@ -167,6 +172,8 @@ class Swarm:
         mission = self._missions.get(key)
         if mission is None:
             raise KeyError(f"unknown mission {key}")
+        if worker_id not in mission.node_of or worker_id in mission.quarantined:
+            raise ValueError("worker is not available for attack")
         response, replacement = mission.handler.attack(worker_id)
         # Any late reply from the compromised worker is dropped from now on.
         mission.quarantined.add(worker_id)
@@ -183,7 +190,11 @@ class Swarm:
         self._owner[worker_id] = key
         mission.inflight.add(worker_id)
         mission.finished = False
-        node = transport.submit(payload, set(avoid))
+        try:
+            node = transport.submit(payload, set(avoid))
+        except Exception as exc:
+            self._on_result({"worker_id": worker_id, "status": FAILED, "error": str(exc)})
+            return
         mission.node_of[worker_id] = node
         self._notify(mission, {"worker_id": worker_id, "status": RUNNING, "runtime": transport.runtime,
                                "node_id": node, "started_at": time.time()})

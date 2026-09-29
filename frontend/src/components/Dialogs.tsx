@@ -94,7 +94,7 @@ export function ResultDialog({ view, onApprove, onClose }: { view: MissionView; 
         onClose={onClose}
         sub={
           <>
-            Reconstructed in the enclave from {verified} verified {verified === 1 ? 'fragment' : 'fragments'}
+            Reconstructed by the coordinator from {verified} verified {verified === 1 ? 'fragment' : 'fragments'}
             {rejected.length > 0 && ` · ${rejected.length} tainted ${rejected.length === 1 ? 'output' : 'outputs'} rejected`}
           </>
         }
@@ -149,12 +149,12 @@ export function ResultDialog({ view, onApprove, onClose }: { view: MissionView; 
         {view.approved ? (
           <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 500, color: '#86EFAC' }}>
             <CheckIcon />
-            Approved by AI Lab · released from the enclave
+            Approved by AI Lab · result released
           </span>
         ) : (
           <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#8E8E8E' }}>
             <LockIcon size={13} stroke="#8E8E8E" width={2} />
-            Held in the enclave until a human approves it
+            Held by the coordinator until a human approves it
           </span>
         )}
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 10 }}>

@@ -10,12 +10,14 @@ license = { file = "LICENSE" }
 requires-python = ">=3.11"
 dependencies = [
     "fastapi",
+    "uvicorn",
+    "cryptography>=44",
     "pydantic>=2",
     "flwr[simulation]>=1.39.0,<2.0",
 ]
 
 [dependency-groups]
-dev = ["pytest"]
+dev = ["pytest", "httpx"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["services"]
@@ -25,7 +27,7 @@ testpaths = ["tests"]
 pythonpath = ["."]
 
 [tool.flwr.app]
-publisher = "your-flower-username"  # TODO: replace with the Flower account username used to publish
+publisher = "qxh2001"
 display-name = "Constellation"
 fab-format-version = 1
 flwr-version-target = "1.39.0"
@@ -39,3 +41,9 @@ prompt = ""  # confidential mission; empty runs the built-in AI-research demo
 attack = ""  # worker role to hit with the demo prompt-injection attack, e.g. "literature"
 timeout = 120
 
+
+# Shared run-config: never put mission text or credentials here for remote runs.
+bridge-url = ""
+mission-id = ""
+min-nodes = 9
+control-ttl = 900

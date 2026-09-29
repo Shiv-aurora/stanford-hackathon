@@ -339,25 +339,33 @@ name = "constellation"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "cryptography" },
     { name = "fastapi" },
     { name = "flwr", extra = ["simulation"] },
     { name = "pydantic" },
+    { name = "uvicorn" },
 ]
 
 [package.dev-dependencies]
 dev = [
+    { name = "httpx" },
     { name = "pytest" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "cryptography", specifier = ">=44" },
     { name = "fastapi" },
-    { name = "flwr", extras = ["simulation"], specifier = ">=1.20" },
+    { name = "flwr", extras = ["simulation"], specifier = ">=1.39.0,<2.0" },
     { name = "pydantic", specifier = ">=2" },
+    { name = "uvicorn" },
 ]
 
 [package.metadata.requires-dev]
-dev = [{ name = "pytest" }]
+dev = [
+    { name = "httpx" },
+    { name = "pytest" },
+]
 
 [[package]]
 name = "cryptography"
@@ -747,10 +755,10 @@ name = "jsonschema"
 version = "4.26.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "attrs", marker = "(python_full_version < '3.15' and sys_platform != 'win32') or (python_full_version < '3.13' and sys_platform == 'win32')" },
-    { name = "jsonschema-specifications", marker = "(python_full_version < '3.15' and sys_platform != 'win32') or (python_full_version < '3.13' and sys_platform == 'win32')" },
-    { name = "referencing", marker = "(python_full_version < '3.15' and sys_platform != 'win32') or (python_full_version < '3.13' and sys_platform == 'win32')" },
-    { name = "rpds-py", marker = "(python_full_version < '3.15' and sys_platform != 'win32') or (python_full_version < '3.13' and sys_platform == 'win32')" },
+    { name = "attrs" },
+    { name = "jsonschema-specifications" },
+    { name = "referencing" },
+    { name = "rpds-py" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/b3/fc/e067678238fa451312d4c62bf6e6cf5ec56375422aee02f9cb5f909b3047/jsonschema-4.26.0.tar.gz", hash = "sha256:0c26707e2efad8aa1bfc5b7ce170f3fccc2e4918ff85989ba9ffa9facb2be326", size = 366583, upload-time = "2026-01-07T13:41:07.246Z" }
 wheels = [
@@ -762,7 +770,7 @@ name = "jsonschema-specifications"
 version = "2025.9.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "referencing", marker = "(python_full_version < '3.15' and sys_platform != 'win32') or (python_full_version < '3.13' and sys_platform == 'win32')" },
+    { name = "referencing" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/19/74/a633ee74eb36c44aa6d1095e7cc5569bebf04342ee146178e2d36600708b/jsonschema_specifications-2025.9.1.tar.gz", hash = "sha256:b540987f239e745613c7a9176f3edb72b832a4ac465cf02712288397832b5e8d", size = 32855, upload-time = "2025-09-08T01:34:59.186Z" }
 wheels = [
@@ -1428,14 +1436,14 @@ name = "ray"
 version = "2.55.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "click", marker = "(python_full_version < '3.15' and sys_platform != 'win32') or (python_full_version < '3.13' and sys_platform == 'win32')" },
-    { name = "filelock", marker = "(python_full_version < '3.15' and sys_platform != 'win32') or (python_full_version < '3.13' and sys_platform == 'win32')" },
-    { name = "jsonschema", marker = "(python_full_version < '3.15' and sys_platform != 'win32') or (python_full_version < '3.13' and sys_platform == 'win32')" },
-    { name = "msgpack", marker = "(python_full_version < '3.15' and sys_platform != 'win32') or (python_full_version < '3.13' and sys_platform == 'win32')" },
-    { name = "packaging", marker = "(python_full_version < '3.15' and sys_platform != 'win32') or (python_full_version < '3.13' and sys_platform == 'win32')" },
-    { name = "protobuf", marker = "(python_full_version < '3.15' and sys_platform != 'win32') or (python_full_version < '3.13' and sys_platform == 'win32')" },
-    { name = "pyyaml", marker = "(python_full_version < '3.15' and sys_platform != 'win32') or (python_full_version < '3.13' and sys_platform == 'win32')" },
-    { name = "requests", marker = "(python_full_version < '3.15' and sys_platform != 'win32') or (python_full_version < '3.13' and sys_platform == 'win32')" },
+    { name = "click" },
+    { name = "filelock" },
+    { name = "jsonschema" },
+    { name = "msgpack" },
+    { name = "packaging" },
+    { name = "protobuf" },
+    { name = "pyyaml" },
+    { name = "requests" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/88/7d/48ba2f49b40a34b0071ee27c0144a2573d8836094eaca213d59cef12c271/ray-2.55.1-cp311-cp311-macosx_12_0_arm64.whl", hash = "sha256:0053fd5b400f7ac56263aa1bbd3d68fb79341b08b8dc697c88782d5aca7b3ed4", size = 65835271, upload-time = "2026-04-22T20:09:34.984Z" },
@@ -1459,9 +1467,9 @@ name = "referencing"
 version = "0.37.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "attrs", marker = "(python_full_version < '3.15' and sys_platform != 'win32') or (python_full_version < '3.13' and sys_platform == 'win32')" },
-    { name = "rpds-py", marker = "(python_full_version < '3.15' and sys_platform != 'win32') or (python_full_version < '3.13' and sys_platform == 'win32')" },
-    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
+    { name = "attrs" },
+    { name = "rpds-py" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13' or python_full_version >= '3.15'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/22/f5/df4e9027acead3ecc63e50fe1e36aca1523e1719559c499951bb4b53188f/referencing-0.37.0.tar.gz", hash = "sha256:44aefc3142c5b842538163acb373e24cce6632bd54bdb01b21ad5863489f50d8", size = 78036, upload-time = "2025-10-13T15:30:48.871Z" }
 wheels = [

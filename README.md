@@ -139,51 +139,34 @@ Production extensions would add stronger deployment isolation such as:
 
 Those production controls are architectural extensions, not claims about the current prototype.
 
-## Run
+## Run on SuperGrid
 
-### Backend
+The web app defaults to real SuperGrid execution in `@qxh2001/security`.
+ServerApp is the trusted coordinator; each worker uses a distinct SuperNode.
+Node assignments are retained for the run, and replacements need fresh nodes.
+
+Follow [the SuperGrid setup guide](backend/README.md) to log in, configure the
+HTTPS control bridge and provide at least nine SuperNodes. The guide also
+explains local development modes and the signed state/command connection.
 
 ```bash
 cd backend
 uv sync
+uv run flwr login supergrid
+# Copy .env.example to .env and set the public HTTPS bridge URL.
 uv run uvicorn main:app --port 8000
 ```
 
-### Frontend
-
 ```bash
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
-Open the real API-backed demo:
-
-```text
-http://localhost:5173/?mode=api
-```
-
-The frontend also supports a deterministic standalone demo:
-
-```text
-http://localhost:5173/
-```
-
-## Run directly with Flower
-
-```bash
-cd backend
-uv sync
-uv run flwr run .
-```
-
-Run the built-in compromise scenario:
-
-```bash
-uv run flwr run . --run-config 'attack="literature"'
-```
-
-The Flower configuration should provide enough SuperNodes for the initial workers plus at least one spare replacement node.
+Open `http://localhost:5173/` for the API-backed application. Use `?mode=mock`
+for a standalone simulated UI preview. The Federation screen in API mode shows
+actual mission/run/node information; the mock screen depicts the longer-term
+multi-lab federation concept.
 
 ## Tests
 
