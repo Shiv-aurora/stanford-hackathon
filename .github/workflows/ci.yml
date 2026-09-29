@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install and test backend
+        shell: bash
+        run: |
+          if [ ! -d backend ]; then
+            echo "No backend directory yet; skipping."
+            exit 0
+          fi
+
+          python -m pip install --upgrade pip
+
+          if [ -f backend/pyproject.toml ]; then
+            python -m pip install -e backend
+          elif [ -f backend/requirements.txt ]; then
+            python -m pip install -r backend/requirements.txt
+          else
+            python -m pip install pytest fastapi pydantic httpx uvicorn
+          fi
+
+          if [ -d backend/tests ]; then
+            python -m pytest -q backend/tests
+          else
+            echo "No backend tests yet; skipping."
+          fi
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install and build frontend
+        shell: bash
+        run: |
+          if [ ! -f frontend/package.json ]; then
+            echo "No frontend package yet; skipping."
+            exit 0
+          fi
+
+          cd frontend
+
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
+
+          npm run build
