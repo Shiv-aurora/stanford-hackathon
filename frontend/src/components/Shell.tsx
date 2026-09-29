@@ -1,9 +1,9 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { buildSky } from '../lib/sky';
-import { CheckIcon, LogoIcon, LogIcon, FederationIcon, OverviewIcon, PlusIcon, ShieldIcon } from './Icons';
+import { ChatIcon, CheckIcon, LogoIcon, LogIcon, FederationIcon, OverviewIcon, PlusIcon, ShieldIcon } from './Icons';
 import type { Lab, LabId } from '../lib/labs';
 
-export type NavKey = 'overview' | 'compartments' | 'federation';
+export type NavKey = 'chat' | 'overview' | 'compartments' | 'federation';
 
 // The mockup is drawn on a 1440×900 board. Larger windows get the same layout
 // stretched; smaller windows get the whole board zoomed down so nothing clips.
@@ -170,9 +170,14 @@ export function Sidebar({
         New mission
       </button>
       <nav aria-label="Main" style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-        <a href="#/" style={navItem(active === 'overview')} aria-current={active === 'overview' ? 'page' : undefined}>
+        <a href="#/" style={navItem(active === 'chat')} aria-current={active === 'chat' ? 'page' : undefined}>
+          <ChatIcon />
+          Chat
+        </a>
+        <div style={{ marginTop: 14, padding: '0 12px 6px', fontSize: 12, fontWeight: 500, color: '#8E8E8E' }}>Under the hood</div>
+        <a href="#/overview" style={navItem(active === 'overview')} aria-current={active === 'overview' ? 'page' : undefined}>
           <OverviewIcon />
-          Overview
+          Swarm
         </a>
         <a href="#/compartments" style={navItem(active === 'compartments')} aria-current={active === 'compartments' ? 'page' : undefined}>
           <ShieldIcon />
@@ -182,7 +187,7 @@ export function Sidebar({
           <FederationIcon />
           Federation
         </a>
-        <a href="#/" style={navItem(false)}>
+        <a href="#/overview" style={navItem(false)}>
           <LogIcon />
           Security log
         </a>

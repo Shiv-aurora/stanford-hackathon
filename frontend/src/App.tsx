@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Frame, Sidebar, Sky, type NavKey } from './components/Shell';
 import { NewMissionDialog, ResultDialog } from './components/Dialogs';
 import { Overview } from './pages/Overview';
+import { ChatHome } from './pages/ChatHome';
 import { Compartments, pickWorker, type CompartmentTab } from './pages/Compartments';
 import { Federation } from './pages/Federation';
 import { useMission } from './lib/useMission';
@@ -20,7 +21,8 @@ function parseHash(): Route {
   if (parts[0] === 'compartments')
     return { page: 'compartments', worker: parts[1] ? decodeURIComponent(parts[1]) : null, tab: parts[2] === 'conversation' ? 'conversation' : 'compartment' };
   if (parts[0] === 'federation') return { page: 'federation', worker: null, tab: 'compartment' };
-  return { page: 'overview', worker: null, tab: 'compartment' };
+  if (parts[0] === 'overview') return { page: 'overview', worker: null, tab: 'compartment' };
+  return { page: 'chat', worker: null, tab: 'compartment' };
 }
 
 function useRoute() {
@@ -41,7 +43,7 @@ const go = (hash: string) => {
 };
 
 // Each screen in the mockup seeds its own starfield.
-const SKY_SEED: Record<NavKey, number> = { overview: 97, compartments: 131, federation: 173 };
+const SKY_SEED: Record<NavKey, number> = { chat: 97, overview: 97, compartments: 131, federation: 173 };
 
 export default function App() {
   const { view, actions } = useMission();
@@ -75,6 +77,14 @@ export default function App() {
           go('#/');
         }}
       />
+      {route.page === 'chat' && (
+        <ChatHome
+          view={view}
+          actions={actions}
+          onOpenConversation={(key) => go(workerHash(key, 'conversation'))}
+          onReviewResult={() => setDialog('result')}
+        />
+      )}
       {route.page === 'overview' && (
         <Overview
           view={view}
