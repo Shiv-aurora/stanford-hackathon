@@ -11,13 +11,14 @@ requires-python = ">=3.11"
 dependencies = [
     "fastapi",
     "uvicorn",
+    "httpx",
     "cryptography>=44",
     "pydantic>=2",
     "flwr[simulation]>=1.39.0,<2.0",
 ]
 
 [dependency-groups]
-dev = ["pytest", "httpx"]
+dev = ["pytest"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["services"]

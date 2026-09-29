@@ -64,6 +64,29 @@ Open `http://localhost:5173/`. API mode is the default. The UI shows the remote
 run ID, federation and actual SuperNode IDs. Use `?mode=mock` only for the
 standalone visual preview.
 
+## Local-only callback proxy
+
+When the API remains on a laptop, run the restricted callback proxy separately:
+
+```bash
+# First terminal: ordinary API, kept on loopback.
+uv run uvicorn main:app --host 127.0.0.1 --port 8011
+# Second terminal: callbacks only, also loopback until a tunnel is authorized.
+uv run uvicorn callback_proxy:app --host 127.0.0.1 --port 8012
+```
+
+The proxy permits only POST requests to `/internal/supergrid/{mission}/session`
+and `/internal/supergrid/{mission}/sync`, preserves signed bytes/headers, and
+limits callback bodies to 2 MiB. Mission, worker, documentation and health
+routes are unavailable through this proxy. Set `CONSTELLATION_LOCAL_API` if the
+ordinary API uses another loopback port.
+
+After authorizing a tunneling provider, point its HTTPS tunnel at **port 8012**,
+set `CONSTELLATION_BRIDGE_URL` to the generated HTTPS origin, and restart the
+ordinary API. A tunnel provider can handle plaintext at TLS termination; use
+synthetic demo missions for initial connectivity testing. Temporary URLs stop
+working when the tunnel exits and may change when restarted.
+
 ## How the web bridge works
 
 1. FastAPI runs `flwr run . supergrid --federation ... --format json` and records

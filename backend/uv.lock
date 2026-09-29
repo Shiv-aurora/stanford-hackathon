@@ -342,13 +342,13 @@ dependencies = [
     { name = "cryptography" },
     { name = "fastapi" },
     { name = "flwr", extra = ["simulation"] },
+    { name = "httpx" },
     { name = "pydantic" },
     { name = "uvicorn" },
 ]
 
 [package.dev-dependencies]
 dev = [
-    { name = "httpx" },
     { name = "pytest" },
 ]
 
@@ -357,15 +357,13 @@ requires-dist = [
     { name = "cryptography", specifier = ">=44" },
     { name = "fastapi" },
     { name = "flwr", extras = ["simulation"], specifier = ">=1.39.0,<2.0" },
+    { name = "httpx" },
     { name = "pydantic", specifier = ">=2" },
     { name = "uvicorn" },
 ]
 
 [package.metadata.requires-dev]
-dev = [
-    { name = "httpx" },
-    { name = "pytest" },
-]
+dev = [{ name = "pytest" }]
 
 [[package]]
 name = "cryptography"
