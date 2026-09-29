@@ -1,8 +1,12 @@
 # Constellation
 
-Secure parallel agent swarm for confidential work. A trusted coordinator splits
-one sensitive mission into narrow worker tasks; each worker runs as a Flower
-`ClientApp` on its own SuperNode and receives only its own task and context slice.
+Secure parallel agent swarm for confidential work. The whole mission runs
+inside Flower:
+
+- **ServerApp = trusted coordinator.** It decomposes the mission, sends each
+  worker only its own task and context slice, quarantines and replaces an
+  attacked worker, and synthesizes the final result (`services/swarm.py`).
+- **ClientApp = untrusted worker**, one per SuperNode (`services/flower_app.py`).
 
 **A compromised worker cannot leak information it never received.**
 
@@ -10,17 +14,23 @@ one sensitive mission into narrow worker tasks; each worker runs as a Flower
 
 ```bash
 uv sync
-uv run flwr run .                       # built-in demo: 4 workers
-uv run flwr run . --run-config 'worker-specs="[{\"id\":\"w1\",\"role\":\"data\",\"task\":\"Profile dataset\",\"allowed_context\":[\"schema\"]}]"'
+uv run flwr run .                                    # built-in AI-research demo mission
+uv run flwr run . --run-config 'attack="literature"' # inject an attack mid-mission
+uv run flwr run . --run-config 'prompt="Confidential: ..."'
 ```
+
+Set `options.num-supernodes` (in `~/.flwr/config.toml`) to at least the number
+of workers plus one spare node for replacements, e.g. 10.
+
+The FastAPI backend (`uvicorn main:app`) runs the same coordinator as one
+long-lived ServerApp; `POST /mission` and `POST /workers/{id}/attack` are
+handed to it. Set `CONSTELLATION_RUNTIME=local` to run the coordinator over
+local threads instead of Flower.
 
 Missions belong to a lab (`"lab": "ai" | "defense" | "biotech"` on
 `POST /mission`, default `ai`). Defense and biotech missions get their lab's
 8-worker decomposition (see `services/decomposer.py`); `GET /missions?lab=…`
 lists one lab's missions.
-
-A worker spec has `id`, `role`, `task`, `allowed_context` and optional
-`network_identity`. Keep `num-supernodes` >= the number of workers.
 
 ## Optional model calls
 

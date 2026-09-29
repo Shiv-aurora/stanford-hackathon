@@ -1,6 +1,7 @@
 import io
 import json
 import threading
+import time
 
 import pytest
 
@@ -61,7 +62,7 @@ def test_flower_path_runs_each_worker_on_its_own_node():
 
 @pytest.mark.skipif(not rt.flower_available(), reason="flwr[simulation] not installed")
 def test_overlapping_flower_runs_do_not_deadlock():
-    # A replacement dispatched while the mission's simulation is still running.
+    # A second run while a simulation holds Ray must not hang; it runs locally.
     results = {}
 
     def run(name, specs):
@@ -69,9 +70,11 @@ def test_overlapping_flower_runs_do_not_deadlock():
 
     first = threading.Thread(target=run, args=("mission", SPECS[:3]))
     first.start()
+    time.sleep(1)
     run("replacement", [{**SPECS[0], "id": "w1-r1"}])
-    first.join()
-    assert [r.runtime for r in results["mission"] + results["replacement"]] == ["flower"] * 4
+    first.join(timeout=120)
+    assert not first.is_alive()
+    assert [r.runtime for r in results["mission"]] == ["flower"] * 3
     assert all(r.status == COMPLETE for r in results["mission"] + results["replacement"])
 
 

@@ -56,11 +56,6 @@ MODEL_TIMEOUT_S = float(os.environ.get("CONSTELLATION_MODEL_TIMEOUT", "30"))
 
 StatusCallback = Callable[["WorkerResult"], None]
 
-# One Flower simulation at a time per process: overlapping run_simulation
-# calls share the in-process Ray cluster and deadlock. A replacement worker
-# dispatched mid-mission waits for the running simulation, then gets its own.
-_FLOWER_LOCK = threading.Lock()
-
 
 @dataclass
 class WorkerResult:
@@ -251,37 +246,80 @@ class _Tracker:
 # ---------------------------------------------------------------------------
 
 
+# Only one Flower simulation may run per process: ending one shuts Ray down.
+_SIMULATION_LOCK = threading.Lock()
+
+
+def _simulate(server, num_nodes: int) -> None:
+    from flwr.simulation import run_simulation
+
+    from services.flower_app import client_app
+
+    run_simulation(
+        server_app=server,
+        client_app=client_app,
+        num_supernodes=num_nodes,
+        backend_config={
+            "client_resources": {"num_cpus": 1, "num_gpus": 0.0},
+            # Logical CPUs only: lets every worker run concurrently.
+            "init_args": {"num_cpus": num_nodes, "include_dashboard": False, "log_to_driver": False},
+        },
+    )
+
+
+def run_coordinator_simulation(swarm: Any, num_nodes: int) -> None:
+    """Run the trusted coordinator (services.swarm.Swarm) as the Flower ServerApp.
+
+    Blocks until the swarm is stopped. Holds the simulation lock meanwhile, so
+    ad-hoc run_workers calls use the local path instead of clobbering Ray.
+    """
+    from flwr.app import Context
+    from flwr.serverapp import Grid, ServerApp
+
+    from services.flower_app import GridTransport
+
+    if not _SIMULATION_LOCK.acquire(blocking=False):
+        swarm.ready.set()  # caller sees alive=False and falls back
+        return
+    try:
+        server = ServerApp()
+
+        @server.main()
+        def main(grid: Grid, context: Context) -> None:
+            swarm.run(lambda: GridTransport(grid, num_nodes, FLOWER_TIMEOUT_S))
+
+        _simulate(server, num_nodes)
+    except Exception:
+        log.exception("Flower coordinator crashed")
+    finally:
+        swarm.ready.set()
+        _SIMULATION_LOCK.release()
+
+
 def _run_flower(payloads: list[dict[str, Any]], tracker: _Tracker) -> None:
     from flwr.app import Context
     from flwr.serverapp import Grid, ServerApp
-    from flwr.simulation import run_simulation
 
-    from services.flower_app import client_app, dispatch
+    from services.flower_app import dispatch
 
-    n = len(payloads)
-    errors: list[BaseException] = []
-    server = ServerApp()
+    if not _SIMULATION_LOCK.acquire(blocking=False):
+        raise RuntimeError("a Flower simulation is already running in this process")
+    try:
+        errors: list[BaseException] = []
+        server = ServerApp()
 
-    @server.main()
-    def main(grid: Grid, context: Context) -> None:
-        try:
-            dispatch(grid, payloads, tracker.set, FLOWER_TIMEOUT_S)
-        except BaseException as exc:  # surfaced after the simulation stops
-            errors.append(exc)
+        @server.main()
+        def main(grid: Grid, context: Context) -> None:
+            try:
+                dispatch(grid, payloads, tracker.set, FLOWER_TIMEOUT_S)
+            except BaseException as exc:  # surfaced after the simulation stops
+                errors.append(exc)
 
-    with _FLOWER_LOCK:
-        run_simulation(
-            server_app=server,
-            client_app=client_app,
-            num_supernodes=n,
-            backend_config={
-                "client_resources": {"num_cpus": 1, "num_gpus": 0.0},
-                # Logical CPUs only: lets every worker run concurrently.
-                "init_args": {"num_cpus": n, "include_dashboard": False, "log_to_driver": False},
-            },
-        )
-    if errors:
-        raise errors[0]
+        _simulate(server, len(payloads))
+        if errors:
+            raise errors[0]
+    finally:
+        _SIMULATION_LOCK.release()
 
 
 # ---------------------------------------------------------------------------

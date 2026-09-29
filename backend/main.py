@@ -9,6 +9,7 @@ CONSTELLATION_FALLBACK=1 to force the stand-ins.
 
 import importlib
 import os
+import threading
 import time
 import uuid
 from typing import Any, Callable, Dict, List, Optional
@@ -63,15 +64,27 @@ security_attack = _load_optional("services.security", "attack_worker")
 synthesize = _load("services.coordinator", "synthesize", demo_seed.synthesize)
 calculate_progress = _load("services.coordinator", "progress", demo_seed.progress)
 calculate_metrics = _load("services.coordinator", "metrics", demo_seed.metrics)
+# Trusted coordinator service: runs decompose -> workers -> attack handling ->
+# synthesis inside the Flower ServerApp. None means the in-process fallbacks.
+get_swarm = _load_optional("services.swarm", "get_swarm")
+SWARM_TIMEOUT = float(os.environ.get("CONSTELLATION_SWARM_TIMEOUT", "120"))
 
 
 app = FastAPI(title="Constellation")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+def _warm_coordinator() -> None:
+    # Start the Flower coordinator in the background so the first mission is fast.
+    if get_swarm is not None:
+        threading.Thread(target=get_swarm, name="constellation-warmup", daemon=True).start()
 
 
 def _get(obj: Any, key: str, default: Any = None) -> Any:
@@ -87,8 +100,12 @@ def _mission_or_404(mission_id: str) -> Mission:
     return mission
 
 
-def _refresh_mission(mission_id: str) -> None:
-    """Recompute progress/status; the coordinator synthesizes once all active workers finish."""
+def _refresh_mission(mission_id: str, synthesize_now: bool = True) -> None:
+    """Recompute progress/status; the coordinator synthesizes once all active workers finish.
+
+    With the swarm coordinator, updates pass synthesize_now=False and the
+    coordinator triggers synthesis itself via _ApiMission.finish().
+    """
     with store.lock:
         mission = store.missions[mission_id]
         if mission.status == MissionStatus.APPROVED:
@@ -97,7 +114,7 @@ def _refresh_mission(mission_id: str) -> None:
         mission.progress = calculate_progress(workers)
         active = demo_seed.active_workers(workers)
         finished = all(w.status in (WorkerStatus.COMPLETE, WorkerStatus.FAILED) for w in active)
-        if active and finished:
+        if active and finished and synthesize_now:
             if any(w.status == WorkerStatus.COMPLETE for w in active):
                 mission.status = MissionStatus.COMPLETE
                 mission.result = synthesize(workers)
@@ -108,7 +125,7 @@ def _refresh_mission(mission_id: str) -> None:
             mission.result = None
 
 
-def _apply_update(update: Any) -> None:
+def _apply_update(update: Any, synthesize_now: bool = True) -> None:
     worker_id = _get(update, "worker_id") or _get(update, "id")
     with store.lock:
         worker = store.get_worker(worker_id)
@@ -119,7 +136,15 @@ def _apply_update(update: Any) -> None:
             value = _get(update, field)
             if value is not None:
                 setattr(worker, field, WorkerStatus(value) if field == "status" else value)
-        _refresh_mission(worker.mission_id)
+        _refresh_mission(worker.mission_id, synthesize_now)
+
+
+def _execution_spec(worker: Worker) -> Dict[str, Any]:
+    spec = worker.model_dump(mode="json")
+    # `context` is intentionally excluded from API serialization, so add the
+    # worker's own private fragment explicitly for execution.
+    spec["context"] = dict(worker.context)
+    return spec
 
 
 def _execute(worker_ids: List[str]) -> None:
@@ -127,11 +152,7 @@ def _execute(worker_ids: List[str]) -> None:
     for worker_id in worker_ids:
         worker = store.get_worker(worker_id)
         if worker is not None:
-            spec = worker.model_dump(mode="json")
-            # `context` is intentionally excluded from API serialization, so
-            # add the worker's own private fragment explicitly for execution.
-            spec["context"] = dict(worker.context)
-            specs.append(spec)
+            specs.append(_execution_spec(worker))
     try:
         results = run_workers(specs, on_update=_apply_update)
         for result in results or []:
@@ -146,13 +167,10 @@ def health() -> Dict[str, Any]:
     return {"status": "ok"}
 
 
-@app.post("/mission", response_model=Mission)
-def create_mission(body: MissionCreate, background: BackgroundTasks) -> Mission:
-    mission = store.add_mission(
-        Mission(id=f"m-{uuid.uuid4().hex[:8]}", prompt=body.prompt, created_at=time.time(), lab=body.lab)
-    )
-    for i, spec in enumerate(decompose_mission(body.prompt, domain=body.lab), start=1):
-        store.add_worker(Worker(
+def _create_workers(mission: Mission) -> List[Worker]:
+    workers = []
+    for i, spec in enumerate(decompose_mission(mission.prompt, domain=mission.lab), start=1):
+        workers.append(store.add_worker(Worker(
             id=f"{mission.id}-w{i:02d}",
             mission_id=mission.id,
             role=_get(spec, "role"),
@@ -162,7 +180,57 @@ def create_mission(body: MissionCreate, background: BackgroundTasks) -> Mission:
             context=dict(_get(spec, "context", {})),
             context_exposure=_get(spec, "context_exposure", 0.0),
             network_identity=_get(spec, "network_identity") or f"node-{i:02d}",
-        ))
+        )))
+    return workers
+
+
+class _ApiMission:
+    """Mission handler run by the trusted coordinator (services.swarm).
+
+    Every method is called from the coordinator loop inside the Flower
+    ServerApp; the API routes only submit work and wait for the answer.
+    """
+
+    def __init__(self, mission_id: str) -> None:
+        self.mission_id = mission_id
+
+    def decompose(self) -> List[Dict[str, Any]]:
+        with store.lock:
+            mission = store.missions[self.mission_id]
+            workers = _create_workers(mission)
+            mission.status = MissionStatus.RUNNING
+            return [_execution_spec(w) for w in workers]
+
+    def on_update(self, update: Dict[str, Any]) -> None:
+        _apply_update(update, synthesize_now=False)
+
+    def attack(self, worker_id: str) -> tuple:
+        response = _quarantine(worker_id)
+        return response, _execution_spec(response.replacement)
+
+    def finish(self) -> None:
+        _refresh_mission(self.mission_id, synthesize_now=True)
+
+
+def _await(future: Any) -> Any:
+    try:
+        return future.result(timeout=SWARM_TIMEOUT)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"coordinator unavailable: {exc}") from exc
+
+
+@app.post("/mission", response_model=Mission)
+def create_mission(body: MissionCreate, background: BackgroundTasks) -> Mission:
+    mission = store.add_mission(
+        Mission(id=f"m-{uuid.uuid4().hex[:8]}", prompt=body.prompt, created_at=time.time(), lab=body.lab)
+    )
+    if get_swarm is not None:
+        # The coordinator decomposes and dispatches inside the Flower ServerApp.
+        _await(get_swarm().submit_mission(mission.id, _ApiMission(mission.id)))
+        return mission
+    _create_workers(mission)
     mission.status = MissionStatus.RUNNING
     background.add_task(_execute, list(mission.worker_ids))
     return mission
@@ -186,8 +254,8 @@ def get_workers(mission_id: str) -> List[Worker]:
     return store.mission_workers(mission_id)
 
 
-@app.post("/workers/{worker_id}/attack", response_model=AttackResponse)
-def attack_worker(worker_id: str, background: BackgroundTasks) -> AttackResponse:
+def _quarantine(worker_id: str) -> AttackResponse:
+    """Quarantine `worker_id` and create its replacement (not yet executed)."""
     with store.lock:
         worker = store.get_worker(worker_id)
         if worker is None:
@@ -233,10 +301,22 @@ def attack_worker(worker_id: str, background: BackgroundTasks) -> AttackResponse
             timestamp=event_timestamp,
         )
         store.add_event(event)
-        _refresh_mission(mission.id)
+        _refresh_mission(mission.id, synthesize_now=False)
+        return AttackResponse(quarantined=quarantined, replacement=replacement, event=event)
 
-    background.add_task(_execute, [replacement.id])
-    return AttackResponse(quarantined=quarantined, replacement=replacement, event=event)
+
+@app.post("/workers/{worker_id}/attack", response_model=AttackResponse)
+def attack_worker(worker_id: str, background: BackgroundTasks) -> AttackResponse:
+    worker = store.get_worker(worker_id)
+    if worker is None:
+        raise HTTPException(status_code=404, detail="worker not found")
+    swarm = get_swarm() if get_swarm is not None else None
+    if swarm is not None and swarm.has_mission(worker.mission_id):
+        # The coordinator quarantines and re-dispatches inside the ServerApp.
+        return _await(swarm.attack(worker.mission_id, worker_id))
+    response = _quarantine(worker_id)
+    background.add_task(_execute, [response.replacement.id])
+    return response
 
 
 @app.get("/mission/{mission_id}/result", response_model=MissionResult)
