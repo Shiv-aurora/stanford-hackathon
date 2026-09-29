@@ -81,14 +81,15 @@ class WorkerResult:
 
 
 def _seeded_output(payload: Mapping[str, Any]) -> str:
-    context = list(payload.get("allowed_context") or [])
+    labels = list(payload.get("allowed_context") or [])
+    context = list(payload.get("context") or [])
     digest = hashlib.sha256(
         "|".join([payload["id"], payload["role"], payload["task"], *context]).encode()
     ).hexdigest()[:8]
-    ctx = ", ".join(context) if context else "no context"
+    scope = ", ".join(labels) if labels else "no context"
     return (
         f"[{payload['role']}] {payload['task']} :: "
-        f"analysed {len(context)} scoped item(s) ({ctx}); finding-{digest}"
+        f"analysed {len(context)} scoped fragment(s) ({scope}); finding-{digest}"
     )
 
 
@@ -116,7 +117,7 @@ def _extract_text(data: Mapping[str, Any]) -> str:
 
 def _call_model(payload: Mapping[str, Any], config: tuple[str, str, str]) -> str:
     endpoint, model, key = config
-    context = "\n".join(f"- {c}" for c in payload.get("allowed_context") or []) or "- (none)"
+    context = "\n".join(f"- {c}" for c in payload.get("context") or []) or "- (none)"
     body = {
         "model": model,
         "input": [
@@ -150,8 +151,9 @@ def _call_model(payload: Mapping[str, Any], config: tuple[str, str, str]) -> str
 def execute_task(payload: Mapping[str, Any]) -> tuple[str, str]:
     """Run one worker task using only that worker's slice.
 
-    `payload` holds only: id, role, task, allowed_context, network_identity,
-    and an optional `fail` flag for demoing failures. Returns (output, source).
+    `payload` holds only this worker's id, role, task, access labels,
+    narrow context fragments, network identity, and optional `fail` flag.
+    Returns (output, source).
     """
     if payload.get("fail"):
         raise RuntimeError(f"worker {payload['id']} failed (simulated)")
@@ -177,11 +179,17 @@ def _get(spec: Any, key: str, default: Any = None) -> Any:
 
 def _payload(spec: Any, index: int) -> dict[str, Any]:
     """Extract the narrow per-worker payload. Nothing else is sent."""
+    context_map = _get(spec, "context") or {}
+    if isinstance(context_map, Mapping):
+        context = [str(v) for v in context_map.values() if str(v).strip()]
+    else:
+        context = [str(v) for v in context_map if str(v).strip()]
     return {
         "id": str(_get(spec, "id") or f"worker-{index}"),
         "role": str(_get(spec, "role") or "worker"),
         "task": str(_get(spec, "task") or ""),
         "allowed_context": [str(c) for c in (_get(spec, "allowed_context") or [])],
+        "context": context,
         "network_identity": str(_get(spec, "network_identity") or f"node-{index + 1:02d}"),
         "fail": bool(_get(spec, "fail", False)),
     }
@@ -310,7 +318,7 @@ def run_workers(
     """Run worker specs in parallel and return one result per worker.
 
     worker_specs: dicts or objects with id, role, task, allowed_context,
-        network_identity (optional `fail` flag to simulate a failure).
+        private context fragments, network_identity (optional `fail` flag).
     on_update: called with a WorkerResult on every status transition
         (queued -> running -> complete/failed).
     use_flower: force (True) or skip (False) the Flower path. Default: use
