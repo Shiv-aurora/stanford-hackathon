@@ -160,6 +160,9 @@ class StandaloneMission:
     def attack(self, worker_id: str) -> tuple[dict[str, Any], dict[str, Any] | None]:
         from services.security import attack_worker
 
+        # The previous synthesis is stale as soon as a worker is compromised.
+        # It will be rebuilt only after the replacement finishes.
+        self.result = None
         event, replacement = attack_worker(self.workers[worker_id], list(self.workers.values()))
         if replacement is not None:
             self.workers[replacement["id"]] = replacement
