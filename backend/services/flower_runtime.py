@@ -83,10 +83,17 @@ class WorkerResult:
 def _seeded_output(payload: Mapping[str, Any]) -> str:
     labels = list(payload.get("allowed_context") or [])
     context = list(payload.get("context") or [])
+    message = str(payload.get("message") or "")
     digest = hashlib.sha256(
-        "|".join([payload["id"], payload["role"], payload["task"], *context]).encode()
+        "|".join([payload["id"], payload["role"], payload["task"], message, *context]).encode()
     ).hexdigest()[:8]
     scope = ", ".join(labels) if labels else "no context"
+    if message:
+        question = message if len(message) <= 120 else message[:117] + "..."
+        return (
+            f"[{payload['role']}] Re: \"{question}\" :: answered from {len(context)} "
+            f"scoped fragment(s) ({scope}) only; finding-{digest}"
+        )
     return (
         f"[{payload['role']}] {payload['task']} :: "
         f"analysed {len(context)} scoped fragment(s) ({scope}); finding-{digest}"
@@ -130,7 +137,8 @@ def _call_model(payload: Mapping[str, Any], config: tuple[str, str, str]) -> str
             },
             {
                 "role": "user",
-                "content": f"Role: {payload['role']}\nTask: {payload['task']}\nContext:\n{context}",
+                "content": f"Role: {payload['role']}\nTask: {payload['task']}\nContext:\n{context}"
+                + (f"\nQuestion from the coordinator: {payload['message']}" if payload.get("message") else ""),
             },
         ],
         "max_output_tokens": 600,
@@ -197,6 +205,8 @@ def _payload(spec: Any, index: int) -> dict[str, Any]:
         "context": context,
         "network_identity": str(_get(spec, "network_identity") or f"node-{index + 1:02d}"),
         "fail": bool(_get(spec, "fail", False)),
+        # Follow-up question for a worker that already finished its task.
+        "message": str(_get(spec, "message") or ""),
     }
 
 

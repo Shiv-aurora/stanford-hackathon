@@ -1,7 +1,7 @@
 """Shared Pydantic models. Field names follow CONTRACT.md; do not redesign."""
 
 from enum import Enum
-from typing import Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -44,6 +44,12 @@ class Worker(BaseModel):
     error: Optional[str] = None
     started_at: Optional[float] = None
     finished_at: Optional[float] = None
+    # True while the worker answers a follow-up question (its task is already done).
+    answering: bool = False
+    # Internal: the worker's conversation (served by /workers/{id}/transcript)
+    # and the follow-up it is currently answering. Never sent to workers.
+    log: List[Dict[str, Any]] = Field(default_factory=list, exclude=True)
+    pending_message: Optional[str] = Field(None, exclude=True)
 
 
 class Mission(BaseModel):
@@ -57,6 +63,8 @@ class Mission(BaseModel):
     # Optional extras: when the mission started, and which lab owns it.
     created_at: Optional[float] = None
     lab: str = "ai"
+    # Internal: the coordinator chat (served by /mission/{id}/messages).
+    chat: List[Dict[str, Any]] = Field(default_factory=list, exclude=True)
 
 
 Lab = Literal["ai", "defense", "biotech"]
@@ -65,6 +73,37 @@ Lab = Literal["ai", "defense", "biotech"]
 class MissionCreate(BaseModel):
     prompt: str = Field(..., min_length=1)
     lab: Lab = "ai"
+
+
+class MessageCreate(BaseModel):
+    text: str = Field(..., min_length=1, max_length=4000)
+
+
+class ChatMessage(BaseModel):
+    """One turn of the coordinator chat."""
+
+    id: str
+    role: Literal["user", "coordinator"]
+    text: Optional[str] = None
+    pending: bool = False
+    # Workers the coordinator asked (need-to-know), and the compartments matched.
+    routed_to: List[str] = Field(default_factory=list)
+    categories: List[str] = Field(default_factory=list)
+    at: float
+
+
+class TranscriptEntry(BaseModel):
+    """One entry of a worker's conversation, as the trusted coordinator sees it."""
+
+    id: str
+    # dispatch | reply | operator | coordinator | attack | security | error
+    kind: str
+    text: str
+    at: float
+    # dispatch only: the exact context fragments sent to the worker.
+    context: Dict[str, str] = Field(default_factory=dict)
+    message_id: Optional[str] = None
+    note: Optional[str] = None
 
 
 class SecurityEvent(BaseModel):

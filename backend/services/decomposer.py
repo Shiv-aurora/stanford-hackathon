@@ -20,6 +20,7 @@ __all__ = [
     "DOMAINS",
     "decompose_mission",
     "extract_fragments",
+    "route_question",
 ]
 
 
@@ -234,6 +235,22 @@ def extract_fragments(prompt: str, domain: str = "ai") -> dict[str, str]:
     for sentence in _sentences(prompt):
         buckets[_classify(sentence, domain)].append(sentence)
     return {c: " ".join(s) for c, s in buckets.items()}
+
+
+def route_question(question: str, domain: str | None = None) -> set[str]:
+    """Context categories a follow-up question is about (need-to-know routing).
+
+    Uses the decomposition keywords, but unlike a mission sentence a question
+    may touch several compartments, so every category with a keyword hit
+    counts. The domain's fallback category is never returned: it is never
+    granted to a worker, so a question that only matches it has no
+    compartment to go to.
+    """
+    domain = domain if domain in DOMAINS else "ai"
+    categories, fallback, _ = DOMAINS[domain]
+    lowered = question.lower()
+    found = {c for c, keywords in categories.items() if any(kw in lowered for kw in keywords)}
+    return found - {fallback}
 
 
 def _is_ai_research(prompt: str) -> bool:

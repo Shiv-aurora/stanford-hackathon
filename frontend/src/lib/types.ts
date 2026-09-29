@@ -13,6 +13,7 @@ export type UiStatus =
   | 'quar' // Quarantined
   | 'revoke' // Access revoked
   | 'prov' // Provisioning (replacement coming up)
+  | 'reply' // Answering a follow-up question (task already complete)
   | 'failed'; // backend: failed
 
 export type OutputState = 'pending' | 'accepted' | 'rejected';
@@ -62,6 +63,33 @@ export interface WorkerView {
   output: string | null;
   outputState: OutputState;
   tainted: boolean;
+  /** Answering a follow-up question from the coordinator or the operator. */
+  answering: boolean;
+}
+
+/** One turn of the coordinator chat. */
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'coordinator';
+  /** null while the coordinator is still working on it. */
+  text: string | null;
+  pending: boolean;
+  /** Workers the coordinator asked (need-to-know). */
+  routedTo: { key: string; star: string }[];
+  /** Compartments the question matched; empty when every worker was asked. */
+  categories: string[];
+}
+
+/** One entry of a worker's conversation, as the trusted coordinator sees it. */
+export interface TranscriptEntry {
+  id: string;
+  kind: 'dispatch' | 'reply' | 'operator' | 'coordinator' | 'attack' | 'security' | 'error';
+  text: string;
+  /** Time in ms. */
+  at: number;
+  /** dispatch only: the exact context fragments sent. */
+  context: { label: string; text: string }[];
+  note: string | null;
 }
 
 /** Containment sequence. Phase 1–6 = Detect, Isolate, Quarantine, Revoke, Replace, Continue. */
@@ -110,6 +138,12 @@ export interface MissionView {
   missions: MissionSummary[];
   /** Lab whose missions are shown. */
   lab: LabId;
+  /** Coordinator chat: the mission prompt, its synthesis, then follow-ups. */
+  chat: ChatMessage[];
+  /** Why a follow-up can't be sent right now; null when it can. */
+  chatBlocked: string | null;
+  /** Conversation of the worker being watched (see watchWorker). */
+  transcript: { key: string; entries: TranscriptEntry[] } | null;
   /** Whether the lab can be switched (api mode only; mock replays the AI Lab demo). */
   labSwitchable: boolean;
 }
@@ -125,4 +159,10 @@ export interface MissionActions {
   selectMission(id: string): void;
   /** Switch to another lab's missions. */
   selectLab(id: LabId): void;
+  /** Ask the coordinator a follow-up; it routes it to the workers that need it. */
+  sendMessage(text: string): void;
+  /** Send one worker a follow-up; it answers from its own slice only. */
+  messageWorker(workerKey: string, text: string): void;
+  /** Keep this worker's conversation fresh in view.transcript (null to stop). */
+  watchWorker(workerKey: string | null): void;
 }

@@ -136,3 +136,12 @@ def test_domain_overrides_keyword_detection():
     workers = decompose_mission(GENERIC_PROMPT, domain="biotech")
     assert [w.role for w in workers][:2] == ["literature", "target_biologist"]
     assert [w.role for w in decompose_mission(GENERIC_PROMPT)][0] == "background"
+
+
+def test_route_question_matches_every_touched_compartment():
+    from backend.services.decomposer import route_question
+
+    assert route_question("Are the jammers enough against the swarm?", "defense") == {"effectors", "threat_assessment"}
+    assert route_question("How bad is the liver toxicity?", "biotech") == {"preclinical_results"}
+    # The coordinator-only objective is never a routing target.
+    assert route_question("What is the confidential project objective?", "defense") == set()

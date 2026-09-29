@@ -10,7 +10,7 @@
 
 import { LABS, labOf, type LabId } from './labs';
 import { MockMission, TICK_MS } from './mock';
-import type { Incident, MissionActions, MissionStatus, MissionSummary, MissionView, UiStatus, WorkerView } from './types';
+import type { ChatMessage, Incident, MissionActions, MissionStatus, MissionSummary, MissionView, TranscriptEntry, UiStatus, WorkerView } from './types';
 
 // ---------------------------------------------------------------------------
 // Contract types (CONTRACT.md)
@@ -35,6 +35,27 @@ export interface BackendWorker {
   error?: string | null;
   started_at?: number | null;
   finished_at?: number | null;
+  answering?: boolean;
+}
+
+export interface BackendChatMessage {
+  id: string;
+  role: 'user' | 'coordinator';
+  text: string | null;
+  pending: boolean;
+  routed_to: string[];
+  categories: string[];
+  at: number;
+}
+
+export interface BackendTranscriptEntry {
+  id: string;
+  kind: TranscriptEntry['kind'];
+  text: string;
+  at: number;
+  context: Record<string, string>;
+  message_id?: string | null;
+  note?: string | null;
 }
 
 export interface BackendMission {
@@ -97,6 +118,11 @@ export const api = {
   attackWorker: (workerId: string) => http<AttackResponse>('POST', `/workers/${encodeURIComponent(workerId)}/attack`),
   getResult: (id: string) => http<BackendResult>('GET', `/mission/${encodeURIComponent(id)}/result`),
   approveMission: (id: string) => http<BackendMission>('POST', `/mission/${encodeURIComponent(id)}/approve`),
+  getMessages: (id: string) => http<BackendChatMessage[]>('GET', `/mission/${encodeURIComponent(id)}/messages`),
+  postMessage: (id: string, text: string) => http<BackendChatMessage[]>('POST', `/mission/${encodeURIComponent(id)}/messages`, { text }),
+  getTranscript: (workerId: string) => http<BackendTranscriptEntry[]>('GET', `/workers/${encodeURIComponent(workerId)}/transcript`),
+  messageWorker: (workerId: string, text: string) =>
+    http<BackendTranscriptEntry>('POST', `/workers/${encodeURIComponent(workerId)}/messages`, { text }),
 };
 
 // ---------------------------------------------------------------------------
@@ -139,7 +165,7 @@ function baseStatus(s: BackendWorkerStatus): UiStatus {
 function toWorker(w: BackendWorker, slot: number, star: string, index: number, pct: number): WorkerView {
   const allowed = w.allowed_context ?? [];
   const blocked = w.blocked_context ?? [];
-  const status = baseStatus(w.status);
+  const status = w.answering ? 'reply' : baseStatus(w.status);
   const rejected = w.tainted || w.quarantined;
   return {
     key: w.id,
@@ -165,6 +191,7 @@ function toWorker(w: BackendWorker, slot: number, star: string, index: number, p
     output: rejected ? w.output ?? 'Tainted output discarded before it reached the coordinator.' : w.output,
     outputState: rejected ? 'rejected' : w.status === 'complete' ? 'accepted' : 'pending',
     tainted: w.tainted,
+    answering: !!w.answering,
   };
 }
 
@@ -210,6 +237,20 @@ function emptyView(prompt: string, error: string | null, lab: LabId): MissionVie
     missions: [],
     lab,
     labSwitchable: true,
+    chat: [],
+    chatBlocked: 'Connecting to the coordinator…',
+    transcript: null,
+  };
+}
+
+function toEntry(e: BackendTranscriptEntry): TranscriptEntry {
+  return {
+    id: e.id,
+    kind: e.kind,
+    text: e.text,
+    at: e.at * 1000,
+    context: Object.entries(e.context ?? {}).map(([label, text]) => ({ label, text })),
+    note: e.note ?? null,
   };
 }
 
@@ -225,6 +266,12 @@ export class ApiMission implements MissionActions {
   private missionList: BackendMission[] = [];
   private workers: BackendWorker[] = [];
   private result: BackendResult | null = null;
+  private chat: BackendChatMessage[] = [];
+  /** Worker whose conversation is on screen, and its entries. */
+  private watched: string | null = null;
+  private transcript: BackendTranscriptEntry[] = [];
+  /** A follow-up is being posted (keeps the composer disabled until the POST returns). */
+  private sending = false;
   private error: string | null = null;
   private prompt = LABS[0].demoPrompt;
   /** A POST /mission is in flight, so the poll must not start another demo mission. */
@@ -293,6 +340,45 @@ export class ApiMission implements MissionActions {
 
   reset = () => this.createMission(this.mission?.prompt || this.prompt);
 
+  sendMessage = (text: string) => {
+    const id = this.missionId;
+    if (!id || !text.trim() || this.sending) return;
+    this.sending = true;
+    this.emit();
+    api
+      .postMessage(id, text.trim())
+      .then((added) => {
+        if (this.missionId === id) this.chat = [...this.chat.filter((m) => !added.some((a) => a.id === m.id)), ...added];
+        this.error = null;
+      })
+      .catch((e: unknown) => this.fail(e))
+      .finally(() => {
+        this.sending = false;
+        void this.poll();
+      });
+  };
+
+  messageWorker = (workerKey: string, text: string) => {
+    if (!text.trim()) return;
+    api
+      .messageWorker(workerKey, text.trim())
+      .then((entry) => {
+        if (this.watched === workerKey) this.transcript = [...this.transcript, entry];
+        this.error = null;
+        this.emit();
+        void this.poll();
+      })
+      .catch((e: unknown) => this.fail(e));
+  };
+
+  watchWorker = (workerKey: string | null) => {
+    if (workerKey === this.watched) return;
+    this.watched = workerKey;
+    this.transcript = [];
+    this.emit();
+    if (workerKey) void this.poll();
+  };
+
   selectLab = (id: LabId) => {
     if (id === this.lab) return;
     this.lab = id;
@@ -302,6 +388,7 @@ export class ApiMission implements MissionActions {
     this.missionList = [];
     this.workers = [];
     this.result = null;
+    this.chat = [];
     this.runningSince.clear();
     this.attackedAt.clear();
     this.frozenPct.clear();
@@ -359,6 +446,7 @@ export class ApiMission implements MissionActions {
     this.mission = m;
     this.workers = [];
     this.result = null;
+    this.chat = [];
     this.runningSince.clear();
     this.attackedAt.clear();
     this.frozenPct.clear();
@@ -427,7 +515,12 @@ export class ApiMission implements MissionActions {
         }
         throw e;
       }
-      const workers = await api.getWorkers(id);
+      const watched = this.watched;
+      const [workers, chat, transcript] = await Promise.all([
+        api.getWorkers(id),
+        api.getMessages(id),
+        watched ? api.getTranscript(watched).catch(() => [] as BackendTranscriptEntry[]) : Promise.resolve([] as BackendTranscriptEntry[]),
+      ]);
       const finished = mission.status === 'complete' || mission.status === 'approved';
       const result = finished ? await api.getResult(id) : null;
       // The user may have switched missions while these requests were in flight.
@@ -435,6 +528,8 @@ export class ApiMission implements MissionActions {
       this.mission = mission;
       this.workers = workers;
       this.result = result;
+      this.chat = chat;
+      if (watched === this.watched) this.transcript = transcript;
       this.error = null;
     } catch (e) {
       this.error = e instanceof Error ? `Backend unreachable (${e.message})` : 'Backend unreachable';
@@ -541,7 +636,7 @@ export class ApiMission implements MissionActions {
     const workers = rows.filter(Boolean);
     const hidden = incident && incident.replacement === null ? incident.attacked.key : null;
     const allWorkers = ordered.filter((w) => !hidden || w.replacement_for !== hidden).map((w) => views.get(w.id)!);
-    const doneCount = workers.filter((w) => w.status === 'done').length;
+    const doneCount = workers.filter((w) => w.status === 'done' || w.status === 'reply').length;
     const finished = m.status === 'complete' || m.status === 'approved';
     const progress = finished ? 100 : workers.length ? workers.reduce((s, w) => s + w.pct, 0) / workers.length : 0;
 
@@ -563,6 +658,26 @@ export class ApiMission implements MissionActions {
       missions,
       lab: this.lab,
       labSwitchable: true,
+      chat: this.chat.map(
+        (c): ChatMessage => ({
+          id: c.id,
+          role: c.role,
+          text: c.text,
+          pending: c.pending,
+          routedTo: c.routed_to.map((key) => ({ key, star: starOf.get(key) ?? key })),
+          categories: c.categories,
+        }),
+      ),
+      chatBlocked: this.sending
+        ? 'Sending…'
+        : this.workers.some((w) => w.answering)
+          ? 'The coordinator is still answering.'
+          : m.status === 'complete' || m.status === 'approved'
+            ? null
+            : m.status === 'failed'
+              ? 'The mission failed.'
+              : 'Follow-ups open once the mission completes.',
+      transcript: this.watched ? { key: this.watched, entries: this.transcript.map(toEntry) } : null,
     };
   }
 }

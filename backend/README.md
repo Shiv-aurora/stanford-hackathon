@@ -32,6 +32,17 @@ Missions belong to a lab (`"lab": "ai" | "defense" | "biotech"` on
 8-worker decomposition (see `services/decomposer.py`); `GET /missions?lab=…`
 lists one lab's missions.
 
+Conversations (the trusted coordinator's view):
+
+- `GET|POST /mission/{id}/messages` is the coordinator chat. A follow-up is
+  routed only to the workers whose compartments it mentions
+  (`decomposer.route_question`), re-dispatched through the coordinator, and
+  answered from their replies. Replies never overwrite a worker's task output.
+- `GET /workers/{id}/transcript` returns exactly what a worker was sent
+  (instruction and context fragments) and everything it replied.
+- `POST /workers/{id}/messages` sends one worker a follow-up; it answers from
+  its own slice only.
+
 ## Optional model calls
 
 Set `FLWR_MODEL_API_ENDPOINT`, `FLWR_MODEL_ID` and `FLWR_MODEL_API_KEY`

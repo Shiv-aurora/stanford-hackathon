@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Frame, Sidebar, Sky, type NavKey } from './components/Shell';
 import { NewMissionDialog, ResultDialog } from './components/Dialogs';
 import { Overview } from './pages/Overview';
-import { Compartments } from './pages/Compartments';
+import { Compartments, pickWorker, type CompartmentTab } from './pages/Compartments';
 import { Federation } from './pages/Federation';
 import { useMission } from './lib/useMission';
 import { K } from './lib/theme';
@@ -12,13 +12,15 @@ import { LABS, labOf } from './lib/labs';
 interface Route {
   page: NavKey;
   worker: string | null;
+  tab: CompartmentTab;
 }
 
 function parseHash(): Route {
   const parts = window.location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
-  if (parts[0] === 'compartments') return { page: 'compartments', worker: parts[1] ? decodeURIComponent(parts[1]) : null };
-  if (parts[0] === 'federation') return { page: 'federation', worker: null };
-  return { page: 'overview', worker: null };
+  if (parts[0] === 'compartments')
+    return { page: 'compartments', worker: parts[1] ? decodeURIComponent(parts[1]) : null, tab: parts[2] === 'conversation' ? 'conversation' : 'compartment' };
+  if (parts[0] === 'federation') return { page: 'federation', worker: null, tab: 'compartment' };
+  return { page: 'overview', worker: null, tab: 'compartment' };
 }
 
 function useRoute() {
@@ -30,6 +32,9 @@ function useRoute() {
   }, []);
   return route;
 }
+
+const workerHash = (key: string, tab: CompartmentTab) =>
+  '#/compartments/' + encodeURIComponent(key) + (tab === 'conversation' ? '/conversation' : '');
 
 const go = (hash: string) => {
   window.location.hash = hash;
@@ -74,12 +79,20 @@ export default function App() {
         <Overview
           view={view}
           actions={actions}
-          onOpenWorker={(key) => go('#/compartments/' + encodeURIComponent(key))}
+          onOpenWorker={(key) => go(workerHash(key, 'compartment'))}
+          onOpenConversation={(key) => go(workerHash(key, 'conversation'))}
           onReviewResult={() => setDialog('result')}
         />
       )}
       {route.page === 'compartments' && (
-        <Compartments view={view} workerKey={route.worker} onSelect={(key) => go('#/compartments/' + encodeURIComponent(key))} />
+        <Compartments
+          view={view}
+          actions={actions}
+          workerKey={route.worker}
+          tab={route.tab}
+          onSelect={(key) => go(workerHash(key, route.tab))}
+          onTab={(tab) => go(workerHash(route.worker ?? pickWorker(view, null)?.key ?? '', tab))}
+        />
       )}
       {route.page === 'federation' && <Federation labName={lab.name} />}
 

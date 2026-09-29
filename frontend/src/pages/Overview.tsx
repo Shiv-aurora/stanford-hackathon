@@ -1,6 +1,7 @@
 import { useState, type CSSProperties, type ReactNode } from 'react';
 import { Column, crumb, crumbHere, crumbSep } from '../components/Shell';
 import { LockIcon } from '../components/Icons';
+import { CoordinatorChat, Segmented } from '../components/Chat';
 import { buildMapStars } from '../lib/sky';
 import { CORE_OF, GLOW_OF, K, MONO, STY, isRed } from '../lib/theme';
 import type { MissionActions, MissionView, UiStatus, WorkerView } from '../lib/types';
@@ -68,14 +69,14 @@ function sector(a0: number, a1: number, r0: number, r1: number) {
 
 /** Legend buckets for the swarm map: [label, colour, statuses]. */
 const LEGEND: [string, string, UiStatus[]][] = [
-  ['running', K.blue, ['run', 'prov']],
+  ['running', K.blue, ['run', 'prov', 'reply']],
   ['complete', K.green, ['done']],
   ['queued', '#737373', ['queued']],
   ['contained', K.red, ['detect', 'iso', 'quar', 'revoke', 'failed']],
 ];
 
 function segColor(st: UiStatus) {
-  if (st === 'run') return K.blue;
+  if (st === 'run' || st === 'reply') return K.blue;
   if (st === 'done') return K.green;
   if (st === 'prov') return K.amber;
   if (st === 'revoke' || st === 'queued') return '#3A3A3F';
@@ -111,14 +112,17 @@ export function Overview({
   view,
   actions,
   onOpenWorker,
+  onOpenConversation,
   onReviewResult,
 }: {
   view: MissionView;
   actions: MissionActions;
   onOpenWorker: (key: string) => void;
+  onOpenConversation: (key: string) => void;
   onReviewResult: () => void;
 }) {
   const [sel, setSel] = useState<number | null>(null);
+  const [panel, setPanel] = useState<'workers' | 'chat'>('workers');
   const rows = view.workers;
   const N = rows.length;
   const inc = view.incident;
@@ -183,7 +187,7 @@ export function Overview({
       a: angleOf(i, N) + 'deg',
       c,
       o: bad && phase >= 2 ? 0 : 1,
-      flow: !(bad && hit) && st === 'run',
+      flow: !(bad && hit) && (st === 'run' || st === 'reply'),
       delay: (i * 0.35).toFixed(2) + 's',
     };
   });
@@ -414,10 +418,25 @@ export function Overview({
               overflow: 'hidden',
             }}
           >
-            <div style={{ height: 52, flexShrink: 0, boxSizing: 'border-box', padding: '0 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: 15, fontWeight: 600 }}>Workers</span>
-              <span style={{ fontSize: 13, color: '#8E8E8E' }}>Own machine · own network identity</span>
+            <div style={{ height: 52, flexShrink: 0, boxSizing: 'border-box', padding: '0 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span style={{ fontSize: 15, fontWeight: 600 }}>{panel === 'workers' ? 'Workers' : 'Coordinator'}</span>
+              <span style={{ marginLeft: 'auto', fontSize: 13, color: '#8E8E8E' }}>
+                {panel === 'workers' ? 'Own machine · own network identity' : 'Follow-ups go only to the workers that need them'}
+              </span>
+              <Segmented
+                label="Workers or chat"
+                value={panel}
+                options={[
+                  ['workers', 'Workers'],
+                  ['chat', 'Chat'],
+                ]}
+                onChange={setPanel}
+              />
             </div>
+            {panel === 'chat' ? (
+              <CoordinatorChat chat={view.chat} blocked={view.chatBlocked} onSend={actions.sendMessage} onOpenWorker={onOpenConversation} />
+            ) : (
+            <>
             <div
               style={{
                 height: 36,
@@ -449,6 +468,8 @@ export function Overview({
                 <WorkerRow key={w.key} w={w} rowBg={inc && i === t && phase <= 3 ? 'rgba(239,68,68,0.06)' : 'transparent'} onOpen={() => onOpenWorker(w.key)} />
               ))}
             </div>
+            </>
+            )}
           </section>
 
           <div style={{ width: 400, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 16 }}>
