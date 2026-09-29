@@ -195,8 +195,8 @@ def _event(
     if quarantined:
         message = (
             f"Prompt injection on {wid} ({_get(worker, 'role')}). Worker quarantined, "
-            f"output discarded, replaced by {_get(replacement, 'id')} on "
-            f"{_get(replacement, 'network_identity')}. At most {len(exposed)} scoped "
+            f"output discarded, replacement {_get(replacement, 'id')} queued. "
+            f"At most {len(exposed)} scoped "
             f"context item(s) were exposed; no other worker was affected."
         )
     else:

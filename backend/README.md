@@ -159,3 +159,27 @@ configured federation and a reachable HTTPS bridge.
 
 References: [run apps on SuperGrid](https://flower.ai/docs/framework/how-to-run-flower-apps-on-supergrid.html),
 [CLI JSON output](https://flower.ai/docs/framework/how-to-use-cli-json-output.html).
+
+
+## Live validation — 2026-09-29
+
+Federation: `@qxh2001/security`. ServerApp executed on SuperGrid; nine registered
+SuperNodes ran as separate processes with separate identities/runtime directories
+on one development machine. Worker outputs used the built-in deterministic demo,
+without an external model API.
+
+- Run `5332936222788350605` finished as `finished:completed`.
+- Eight original workers were assigned eight distinct real SuperNode IDs.
+- The literature worker on `322420576836707870` was quarantined; its replacement
+  ran on unused node `18192719775122554503`.
+- Final synthesis reported `Coverage: 8/8` and excluded one quarantined output.
+- The `CONSTELLATION_RUN_SUMMARY` log entry records the worker/node mapping.
+
+The web flow is **not yet cloud-validated**. Run `6218429797578914393` failed
+before retrieving the mission: SuperGrid's outbound proxy returned
+`Tunnel connection failed: 403 Forbidden` for the Cloudflare temporary callback
+origin. No request reached the local callback proxy. External probes reached it
+successfully, with ordinary API routes returning 404 and unsigned callbacks 403.
+An outbound-approved HTTPS callback is required for the real interactive web
+workflow. The signed web lifecycle, including attack, replacement and approval,
+is covered by the integration test using a simulated Grid.
