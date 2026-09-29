@@ -352,7 +352,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi" },
-    { name = "flwr", extras = ["simulation"], specifier = ">=1.20" },
+    { name = "flwr", extras = ["simulation"], specifier = ">=1.39.0,<2.0" },
     { name = "pydantic", specifier = ">=2" },
 ]
 
