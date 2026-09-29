@@ -1,0 +1,16 @@
+[project]
+name = "constellation-backend"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi",
+    "pydantic>=2",
+    "flwr[simulation]>=1.20",
+]
+
+[dependency-groups]
+dev = ["pytest"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
