@@ -25,7 +25,7 @@ testpaths = ["tests"]
 pythonpath = ["."]
 
 [tool.flwr.app]
-publisher = "your-flower-username"  # TODO: set to your Flower account username before publishing
+publisher = "jaspergrant"
 
 [tool.flwr.app.components]
 serverapp = "services.flower_app:server_app"
