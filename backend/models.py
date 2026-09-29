@@ -63,6 +63,8 @@ class Mission(BaseModel):
     # Optional extras: when the mission started, and which lab owns it.
     created_at: Optional[float] = None
     lab: str = "ai"
+    # "chat" splits by the lab's context categories; "code" splits pasted code by definition.
+    mode: str = "chat"
     # Internal: the coordinator chat (served by /mission/{id}/messages).
     chat: List[Dict[str, Any]] = Field(default_factory=list, exclude=True)
 
@@ -73,6 +75,7 @@ Lab = Literal["ai", "defense", "biotech"]
 class MissionCreate(BaseModel):
     prompt: str = Field(..., min_length=1)
     lab: Lab = "ai"
+    mode: Literal["chat", "code"] = "chat"
 
 
 class MessageCreate(BaseModel):

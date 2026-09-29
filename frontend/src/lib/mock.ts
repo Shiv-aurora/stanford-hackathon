@@ -291,6 +291,9 @@ export class MockMission implements MissionActions {
     this.reset();
   };
 
+  /** Mock mode has one scripted mission: a new chat replays it. */
+  newChat = () => this.reset();
+
   /** Only Orion is simulated; the other sidebar missions are the mockup's static entries. */
   selectMission = () => {};
 

@@ -18,8 +18,10 @@ SPECS = [
 
 @pytest.fixture(autouse=True)
 def no_model(monkeypatch):
-    for k in ("FLWR_MODEL_API_ENDPOINT", "FLWR_MODEL_ID", "FLWR_MODEL_API_KEY", "CONSTELLATION_RUNTIME"):
-        monkeypatch.delenv(k, raising=False)
+    # Blank (not delete) so Ray workers inherit "no model" instead of reading backend/.env.
+    for k in ("FLWR_MODEL_API_ENDPOINT", "FLWR_MODEL_ID", "FLWR_MODEL_API_KEY"):
+        monkeypatch.setenv(k, "")
+    monkeypatch.delenv("CONSTELLATION_RUNTIME", raising=False)
 
 
 def collect(**kwargs):

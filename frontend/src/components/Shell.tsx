@@ -167,7 +167,7 @@ export function Sidebar({
         }}
       >
         <PlusIcon />
-        New mission
+        New chat
       </button>
       <nav aria-label="Main" style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
         <a href="#/" style={navItem(active === 'chat')} aria-current={active === 'chat' ? 'page' : undefined}>
@@ -192,7 +192,7 @@ export function Sidebar({
           Security log
         </a>
       </nav>
-      <div style={{ marginTop: 20, padding: '0 12px 6px', fontSize: 12, fontWeight: 500, color: '#8E8E8E' }}>Missions</div>
+      <div style={{ marginTop: 20, padding: '0 12px 6px', fontSize: 12, fontWeight: 500, color: '#8E8E8E' }}>Chats</div>
       <div style={{ minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
         {missions.map((m) => (
           <a

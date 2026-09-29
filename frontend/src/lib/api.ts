@@ -8,7 +8,7 @@
 // Pick the mode with `?mode=api` in the URL or VITE_CONSTELLATION_MODE=api.
 // Backend quirks are absorbed here, never in the components.
 
-import { LABS, labOf, type LabId } from './labs';
+import { LABS, labOf, type ChatMode, type LabId } from './labs';
 import { MockMission, TICK_MS } from './mock';
 import type { ChatMessage, Incident, MissionActions, MissionStatus, MissionSummary, MissionView, TranscriptEntry, UiStatus, WorkerView } from './types';
 
@@ -68,6 +68,7 @@ export interface BackendMission {
   approved: boolean;
   created_at?: number | null;
   lab?: string;
+  mode?: string;
 }
 
 export interface BackendResult {
@@ -112,7 +113,7 @@ async function http<T>(method: 'GET' | 'POST', path: string, body?: unknown): Pr
 export const api = {
   health: () => http<{ status: string }>('GET', '/health'),
   listMissions: (lab: LabId) => http<BackendMission[]>('GET', `/missions?lab=${lab}`),
-  createMission: (prompt: string, lab: LabId) => http<BackendMission>('POST', '/mission', { prompt, lab }),
+  createMission: (prompt: string, lab: LabId, mode: ChatMode) => http<BackendMission>('POST', '/mission', { prompt, lab, mode }),
   getMission: (id: string) => http<BackendMission>('GET', `/mission/${encodeURIComponent(id)}`),
   getWorkers: (id: string) => http<BackendWorker[]>('GET', `/mission/${encodeURIComponent(id)}/workers`),
   attackWorker: (workerId: string) => http<AttackResponse>('POST', `/workers/${encodeURIComponent(workerId)}/attack`),
@@ -238,7 +239,7 @@ function emptyView(prompt: string, error: string | null, lab: LabId): MissionVie
     lab,
     labSwitchable: true,
     chat: [],
-    chatBlocked: 'Connecting to the coordinator…',
+    chatBlocked: error ? 'Connecting to the coordinator…' : null,
     transcript: null,
   };
 }
@@ -274,8 +275,10 @@ export class ApiMission implements MissionActions {
   private sending = false;
   private error: string | null = null;
   private prompt = LABS[0].demoPrompt;
-  /** A POST /mission is in flight, so the poll must not start another demo mission. */
+  /** A POST /mission is in flight. */
   private creating = false;
+  /** Showing an empty chat: the next message starts a new mission. */
+  private drafting = false;
   /** Client-side timing so progress bars and the containment steps animate. */
   private runningSince = new Map<string, number>();
   private attackedAt = new Map<string, number>();
@@ -338,7 +341,18 @@ export class ApiMission implements MissionActions {
       });
   };
 
-  reset = () => this.createMission(this.mission?.prompt || this.prompt);
+  reset = () => this.createMission(this.mission?.prompt || this.prompt, (this.mission?.mode as ChatMode) || 'chat');
+
+  newChat = () => {
+    this.missionId = null;
+    this.mission = null;
+    this.workers = [];
+    this.result = null;
+    this.chat = [];
+    this.drafting = true;
+    this.persist(null);
+    this.emit();
+  };
 
   sendMessage = (text: string) => {
     const id = this.missionId;
@@ -420,12 +434,13 @@ export class ApiMission implements MissionActions {
       .catch((e: unknown) => this.fail(e));
   };
 
-  createMission = (prompt: string) => {
+  createMission = (prompt: string, mode: ChatMode = 'chat') => {
     const lab = this.lab;
     this.prompt = prompt.trim() || labOf(lab).demoPrompt;
     this.creating = true;
+    this.drafting = false;
     api
-      .createMission(this.prompt, lab)
+      .createMission(this.prompt, lab, mode)
       .then((m) => {
         this.creating = false;
         if (lab !== this.lab) return; // switched labs meanwhile; it shows up in that lab's list
@@ -442,6 +457,7 @@ export class ApiMission implements MissionActions {
   /** Switch the view to `m`, dropping the previous mission's client-side timing. */
   private open(m: BackendMission) {
     this.missionId = m.id;
+    this.drafting = false;
     this.createdAt = m.created_at ? m.created_at * 1000 : Date.now();
     this.mission = m;
     this.workers = [];
@@ -497,8 +513,13 @@ export class ApiMission implements MissionActions {
       if (!this.missionId) {
         // Reopen the lab's newest mission rather than starting a new one on every page load.
         const newest = this.missionList[this.missionList.length - 1];
-        if (!newest) {
-          if (!this.creating) this.createMission(labOf(lab).demoPrompt);
+        if (this.drafting || this.creating || !newest) {
+          // Empty chat: wait for the first message (or a demo card).
+          this.drafting = true;
+          this.mission = null;
+          this.workers = [];
+          this.chat = [];
+          this.error = null;
           return;
         }
         this.open(newest);
@@ -525,6 +546,14 @@ export class ApiMission implements MissionActions {
       const result = finished ? await api.getResult(id) : null;
       // The user may have switched missions while these requests were in flight.
       if (this.missionId !== id) return;
+      // Workers the coordinator quarantined on its own: play the containment steps.
+      for (const w of workers) {
+        const prev = this.workers.find((p) => p.id === w.id);
+        if (w.quarantined && prev && !prev.quarantined && !this.attackedAt.has(w.id)) {
+          this.attackedAt.set(w.id, Date.now());
+          this.frozenPct.set(w.id, 100);
+        }
+      }
       this.mission = mission;
       this.workers = workers;
       this.result = result;

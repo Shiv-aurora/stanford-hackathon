@@ -69,7 +69,10 @@ export default function App() {
         active={route.page}
         missions={missions}
         onSelectMission={actions.selectMission}
-        onNewMission={() => setDialog('new')}
+        onNewMission={() => {
+          actions.newChat();
+          go('#/');
+        }}
         lab={lab}
         labs={view.labSwitchable ? LABS : []}
         onSelectLab={(id) => {

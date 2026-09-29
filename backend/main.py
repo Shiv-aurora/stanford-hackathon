@@ -8,7 +8,9 @@ CONSTELLATION_FALLBACK=1 to force the stand-ins.
 """
 
 import importlib
+import logging
 import os
+import re
 import threading
 import time
 import uuid
@@ -67,6 +69,9 @@ security_attack = _load_optional("services.security", "attack_worker")
 synthesize = _load("services.coordinator", "synthesize", demo_seed.synthesize)
 calculate_progress = _load("services.coordinator", "progress", demo_seed.progress)
 calculate_metrics = _load("services.coordinator", "metrics", demo_seed.metrics)
+# Coordinator-side injection check on what each worker processed.
+detect_injection = _load("services.security", "detect_injection", lambda text: [])
+log = logging.getLogger("constellation")
 # Need-to-know routing for follow-up questions; the fallback asks every worker.
 route_question = _load("services.decomposer", "route_question", lambda question, domain=None: set())
 # Trusted coordinator service: runs decompose -> workers -> attack handling ->
@@ -156,11 +161,51 @@ def _apply_update(update: Any, synthesize_now: bool = True) -> None:
             value = _get(update, field)
             if value is not None:
                 setattr(worker, field, WorkerStatus(value) if field == "status" else value)
+        if status == WorkerStatus.COMPLETE and before != WorkerStatus.COMPLETE and (hits := _injected(worker)):
+            # The coordinator's check: this worker processed injected instructions.
+            # Hold its output (it never reaches the synthesis) and contain it.
+            worker.status = WorkerStatus.RUNNING
+            _log(worker, "reply", worker.output or "")
+            _log(worker, "security", f"Coordinator check: prompt injection found in what this worker processed "
+                                     f"({', '.join(hits)}). Output held back; quarantining.")
+            threading.Thread(target=_auto_contain, args=(worker.id,), daemon=True).start()
+            _refresh_mission(worker.mission_id, False)
+            return
         if status == WorkerStatus.COMPLETE and before != WorkerStatus.COMPLETE and worker.output:
             _log(worker, "reply", worker.output)
         elif status == WorkerStatus.FAILED and before != WorkerStatus.FAILED:
             _log(worker, "error", worker.error or "worker failed")
         _refresh_mission(worker.mission_id, synthesize_now)
+
+
+def _injected(worker: Worker) -> List[str]:
+    """Injection heuristics that fire on the worker's context (2+ signals to avoid false alarms)."""
+    hits = sorted({h for text in worker.context.values() for h in detect_injection(text)})
+    return hits if len(hits) >= 2 else []
+
+
+def _pieces(text: str) -> List[str]:
+    return text.splitlines() if "\n" in text else re.split(r"(?<=[.!?])\s+", text)
+
+
+def _sanitize(text: str) -> str:
+    """Drop the sentences (or code lines) that carry injected instructions."""
+    sep = "\n" if "\n" in text else " "
+    return sep.join(p for p in _pieces(text) if not detect_injection(p))
+
+
+def _auto_contain(worker_id: str) -> None:
+    worker = store.get_worker(worker_id)
+    if worker is None or worker.quarantined:
+        return
+    try:
+        swarm = get_swarm() if get_swarm is not None else None
+        if swarm is not None and swarm.has_mission(worker.mission_id):
+            _await(swarm.attack(worker.mission_id, worker_id))
+        else:
+            _execute([_quarantine(worker_id).replacement.id])
+    except Exception:
+        log.exception("automatic containment failed for %s", worker_id)
 
 
 def _finish_reply(worker: Worker, output: Optional[str], error: Optional[str] = None) -> None:
@@ -259,7 +304,8 @@ def health() -> Dict[str, Any]:
 
 def _create_workers(mission: Mission) -> List[Worker]:
     workers = []
-    for i, spec in enumerate(decompose_mission(mission.prompt, domain=mission.lab), start=1):
+    domain = "code" if mission.mode == "code" else mission.lab
+    for i, spec in enumerate(decompose_mission(mission.prompt, domain=domain), start=1):
         workers.append(store.add_worker(Worker(
             id=f"{mission.id}-w{i:02d}",
             mission_id=mission.id,
@@ -316,7 +362,7 @@ def _await(future: Any) -> Any:
 @app.post("/mission", response_model=Mission)
 def create_mission(body: MissionCreate, background: BackgroundTasks) -> Mission:
     mission = store.add_mission(
-        Mission(id=f"m-{uuid.uuid4().hex[:8]}", prompt=body.prompt, created_at=time.time(), lab=body.lab)
+        Mission(id=f"m-{uuid.uuid4().hex[:8]}", prompt=body.prompt, created_at=time.time(), lab=body.lab, mode=body.mode)
     )
     now = time.time()
     mission.chat = [
@@ -382,6 +428,7 @@ def _quarantine(worker_id: str) -> AttackResponse:
             detail = _get(event_data, "message", "worker quarantined")
             event_timestamp = float(_get(event_data, "timestamp", time.time()))
             injected = _get(event_data, "attack_preview") or "Simulated prompt injection."
+            injected = next((p for t in worker.context.values() for p in _pieces(t) if detect_injection(p)), injected)
         else:
             # Deterministic fallback kept for demo resilience.
             n = len(mission.worker_ids) + 1
@@ -397,12 +444,16 @@ def _quarantine(worker_id: str) -> AttackResponse:
 
         _log(quarantined, "attack", injected)
         _log(quarantined, "security", detail)
-        # The replacement starts a clean conversation with the same narrow slice.
+        # The replacement starts a clean conversation with the same narrow slice,
+        # minus any injected text the coordinator found in it.
+        cleaned = {k: _sanitize(v) for k, v in worker.context.items()}
+        stripped = cleaned != worker.context
+        replacement.context = cleaned
         replacement.log = []
         replacement.pending_message = None
         replacement.answering = False
         _log(replacement, "dispatch", replacement.task, context=dict(replacement.context),
-             note=f"Replacement for {worker.id}")
+             note=f"Replacement for {worker.id}" + (" · injected text removed" if stripped else ""))
         store.workers[worker.id] = quarantined
         store.add_worker(replacement)
         event = SecurityEvent(

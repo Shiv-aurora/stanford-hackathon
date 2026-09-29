@@ -2,7 +2,7 @@
 // types; both the mock engine and the backend adapter (lib/api.ts) produce them.
 
 /** Visual worker state. Mirrors the mockup's status table plus backend-only states. */
-import type { LabId } from './labs';
+import type { ChatMode, LabId } from './labs';
 
 export type UiStatus =
   | 'queued' // backend: queued
@@ -154,7 +154,9 @@ export interface MissionActions {
   /** Restart the demo with the same prompt. */
   reset(): void;
   approve(): void;
-  createMission(prompt: string): void;
+  createMission(prompt: string, mode?: ChatMode): void;
+  /** Open an empty chat (the next message starts a new mission). */
+  newChat(): void;
   /** Open another mission from the sidebar. */
   selectMission(id: string): void;
   /** Switch to another lab's missions. */

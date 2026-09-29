@@ -52,7 +52,7 @@ def _load_dotenv(path: str) -> None:
 _load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))
 
 FLOWER_TIMEOUT_S = float(os.environ.get("CONSTELLATION_FLOWER_TIMEOUT", "120"))
-MODEL_TIMEOUT_S = float(os.environ.get("CONSTELLATION_MODEL_TIMEOUT", "30"))
+MODEL_TIMEOUT_S = float(os.environ.get("CONSTELLATION_MODEL_TIMEOUT", "90"))
 
 StatusCallback = Callable[["WorkerResult"], None]
 
@@ -141,7 +141,7 @@ def _call_model(payload: Mapping[str, Any], config: tuple[str, str, str]) -> str
                 + (f"\nQuestion from the coordinator: {payload['message']}" if payload.get("message") else ""),
             },
         ],
-        "max_output_tokens": 600,
+        "max_output_tokens": 800,
     }
     req = urlrequest.Request(
         endpoint,

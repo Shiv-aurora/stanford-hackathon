@@ -314,6 +314,58 @@ def _decompose_generic(prompt: str, mission_id: str | None) -> list[WorkerSpec]:
     return specs
 
 
+_CODE_START = re.compile(r"^(async\s+def|def|class|function|export|public|private|func|fn|const\s+\w+\s*=\s*(async\s*)?\()\b|^(const|let)\s+\w+\s*=\s*(async\s+)?\(")
+_CODE_NAME = re.compile(r"(?:def|class|function|func|fn)\s+([A-Za-z_][\w]*)|(?:const|let)\s+([A-Za-z_][\w]*)")
+_MAX_CODE_WORKERS = 8
+
+
+def _split_code(prompt: str) -> tuple[str, list[tuple[str, str]]]:
+    """(request text, [(label, chunk)]) — one chunk per top-level definition."""
+    fence = re.search(r"```[\w-]*\n(.*?)```", prompt, re.S)
+    code = fence.group(1) if fence else prompt
+    request = (prompt[: fence.start()] + prompt[fence.end():]).strip() if fence else ""
+    chunks: list[list[str]] = [[]]
+    for line in code.splitlines():
+        if _CODE_START.match(line) and any(l.strip() for l in chunks[-1]):
+            chunks.append([])
+        chunks[-1].append(line)
+    blocks = ["\n".join(c).strip("\n") for c in chunks if any(l.strip() for l in c)]
+    # Keep the imports/header with the first definition; cap the worker count.
+    if len(blocks) > 1 and not _CODE_START.match(blocks[0].lstrip()):
+        blocks[1] = blocks[0] + "\n\n" + blocks[1]
+        blocks = blocks[1:]
+    while len(blocks) > _MAX_CODE_WORKERS:
+        blocks[-2] = blocks[-2] + "\n\n" + blocks.pop()
+    out = []
+    for i, block in enumerate(blocks, start=1):
+        m = _CODE_NAME.search(block)
+        name = (m.group(1) or m.group(2)) if m else f"block_{i}"
+        out.append((f"{name}()" if not block.lstrip().startswith("class") else name, block))
+    return request, out
+
+
+def _decompose_code(prompt: str, mission_id: str | None) -> list[WorkerSpec]:
+    """Code mode: each worker reviews one definition and never sees the rest of the codebase."""
+    _, chunks = _split_code(prompt)
+    labels = [label for label, _ in chunks]
+    total = sum(len(c) for _, c in chunks) or 1
+    specs = []
+    for i, (label, chunk) in enumerate(chunks, start=1):
+        specs.append(
+            WorkerSpec(
+                id=_worker_id(mission_id, i, "code"),
+                role=f"review {label}",
+                task=f"Review {label} for bugs, security issues and risky edge cases. Report findings for this code only.",
+                allowed_context=[label],
+                blocked_context=[l for l in labels if l != label] + ["request"],
+                context_exposure=round(min(0.99, max(0.01, len(chunk) / total)), 2),
+                network_identity=_node(i),
+                context={label: chunk},
+            )
+        )
+    return specs
+
+
 def decompose_mission(
     prompt: str, mission_id: str | None = None, domain: str | None = None
 ) -> list[WorkerSpec]:
@@ -327,6 +379,8 @@ def decompose_mission(
     """
     if not prompt or not prompt.strip():
         raise ValueError("mission prompt must not be empty")
+    if domain == "code":
+        return _decompose_code(prompt, mission_id)
     if domain in ("defense", "biotech"):
         return _decompose_domain(prompt, mission_id, domain)
     if _is_ai_research(prompt):
