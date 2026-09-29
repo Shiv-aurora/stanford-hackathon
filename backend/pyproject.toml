@@ -32,6 +32,7 @@ serverapp = "services.flower_app:server_app"
 clientapp = "services.flower_app:client_app"
 
 [tool.flwr.app.config]
-worker-specs = ""  # JSON list of worker specs; empty runs the built-in demo
+prompt = ""  # confidential mission; empty runs the built-in AI-research demo
+attack = ""  # worker role to hit with the demo prompt-injection attack, e.g. "literature"
 timeout = 120
 

@@ -1,13 +1,16 @@
-"""Flower ServerApp/ClientApp for Constellation workers.
+"""Flower ServerApp/ClientApp for Constellation.
+
+ServerApp = the trusted coordinator (services.swarm): decomposes the mission,
+sends each ClientApp only its own slice, quarantines/replaces attacked
+workers and synthesizes the result. ClientApp = one untrusted worker.
 
 These module-level apps are what `flwr run` / Flower Hub load (see
-[tool.flwr.app.components] in pyproject.toml). The FastAPI backend reuses
-the same ClientApp and `dispatch` via services.flower_runtime.run_workers.
+[tool.flwr.app.components] in pyproject.toml). The FastAPI backend runs the
+same coordinator loop as a long-lived ServerApp via services.swarm.
 """
 
 from __future__ import annotations
 
-import json
 import time
 from typing import Any, Callable
 
@@ -15,7 +18,7 @@ from flwr.app import ConfigRecord, Context, Message, RecordDict
 from flwr.clientapp import ClientApp
 from flwr.serverapp import Grid, ServerApp
 
-from services.flower_runtime import COMPLETE, FAILED, RUNNING, _payload, execute_task
+from services.flower_runtime import COMPLETE, FAILED, RUNNING, execute_task
 
 client_app = ClientApp()
 
@@ -77,25 +80,127 @@ def dispatch(
         time.sleep(0.05)
 
 
-DEMO_SPECS = [
-    {"id": "w1", "role": "literature", "task": "Summarise prior work", "allowed_context": ["paper-abstracts"]},
-    {"id": "w2", "role": "data", "task": "Profile the evaluation dataset", "allowed_context": ["dataset-schema"]},
-    {"id": "w3", "role": "eval", "task": "Propose evaluation metrics", "allowed_context": ["benchmark-list"]},
-    {"id": "w4", "role": "risk", "task": "List failure modes", "allowed_context": ["threat-model"]},
-]
+class GridTransport:
+    """Coordinator transport over the Flower Grid: one Message per worker task."""
+
+    runtime = "flower"
+
+    def __init__(self, grid: Grid, num_nodes: int | None, timeout: float) -> None:
+        """Wait for `num_nodes` SuperNodes (None: until the count stops changing)."""
+        deadline = time.time() + timeout
+        seen, stable_since = -1, time.time()
+        while True:
+            node_ids = sorted(grid.get_node_ids())
+            if len(node_ids) != seen:
+                seen, stable_since = len(node_ids), time.time()
+            if num_nodes is not None and seen >= num_nodes:
+                break
+            if num_nodes is None and seen > 0 and time.time() - stable_since > 0.5:
+                break
+            if time.time() > deadline:
+                raise TimeoutError("Flower nodes did not register")
+            time.sleep(0.05)
+        self._grid = grid
+        self._nodes = node_ids
+        self._load = {n: 0 for n in node_ids}
+        self._by_msg: dict[str, tuple[str, int]] = {}  # message id -> (worker id, node)
+
+    def submit(self, payload: dict[str, Any], avoid: set[str]) -> str:
+        # Least-loaded SuperNode, never the node of a quarantined worker.
+        candidates = [n for n in self._nodes if str(n) not in avoid] or self._nodes
+        node = min(candidates, key=lambda n: self._load[n])
+        msg = Message(RecordDict({"task": ConfigRecord(payload)}), dst_node_id=node, message_type="query")
+        (msg_id,) = self._grid.push_messages([msg])
+        self._by_msg[msg_id] = (payload["id"], node)
+        self._load[node] += 1
+        return str(node)
+
+    def poll(self) -> list[dict[str, Any]]:
+        if not self._by_msg:
+            return []
+        updates = []
+        for reply in self._grid.pull_messages(list(self._by_msg)):
+            worker_id, node = self._by_msg.pop(reply.metadata.reply_to_message_id)
+            self._load[node] -= 1
+            if reply.has_error():
+                updates.append({"worker_id": worker_id, "status": FAILED, "error": reply.error.reason})
+            else:
+                result = reply.content["result"]
+                updates.append({"worker_id": worker_id, "status": COMPLETE,
+                                "output": result["output"], "source": result["source"]})
+        return updates
+
+    def close(self) -> None:
+        pass
+
+
+class StandaloneMission:
+    """Trusted mission bookkeeping for `flwr run` (plain dicts, no API)."""
+
+    def __init__(self, prompt: str) -> None:
+        self.prompt = prompt
+        self.workers: dict[str, dict[str, Any]] = {}
+        self.result: str | None = None
+
+    def decompose(self) -> list[dict[str, Any]]:
+        from services.decomposer import decompose_mission
+
+        for spec in decompose_mission(self.prompt, "mission"):
+            worker = {**spec.model_dump(), "status": "queued", "output": None,
+                      "tainted": False, "quarantined": False, "replacement_for": None}
+            self.workers[worker["id"]] = worker
+        return list(self.workers.values())
+
+    def on_update(self, update: dict[str, Any]) -> None:
+        worker = self.workers[update["worker_id"]]
+        worker.update({k: v for k, v in update.items() if k in ("status", "output", "error")})
+        detail = update.get("output") or update.get("error") or update.get("node_id") or ""
+        print(f"{worker['id']:<28} {update['status']:<9} {detail}".rstrip())
+
+    def attack(self, worker_id: str) -> tuple[dict[str, Any], dict[str, Any] | None]:
+        from services.security import attack_worker
+
+        event, replacement = attack_worker(self.workers[worker_id], list(self.workers.values()))
+        if replacement is not None:
+            self.workers[replacement["id"]] = replacement
+        print(f"SECURITY  {event['message']}")
+        return event, replacement
+
+    def finish(self) -> None:
+        from services.coordinator import synthesize
+
+        self.result = synthesize(list(self.workers.values()), self.prompt)
+
 
 server_app = ServerApp()
 
 
 @server_app.main()
 def main(grid: Grid, context: Context) -> None:
-    """Standalone entry point for `flwr run`: runs the `worker-specs` config."""
-    raw = context.run_config.get("worker-specs", "")
-    specs = json.loads(raw) if raw else DEMO_SPECS
-    payloads = [_payload(s, i) for i, s in enumerate(specs)]
+    """`flwr run` entry point: the whole mission, coordinated by this ServerApp.
 
-    def report(worker_id: str, status: str, **fields: Any) -> None:
-        detail = fields.get("output") or fields.get("error") or ""
-        print(f"{worker_id} {status} {detail}".rstrip())
+    Run config: `prompt` (empty = built-in demo mission), `attack` (a worker
+    role to hit with the demo prompt-injection attack, or empty), `timeout`.
+    """
+    from services.decomposer import DEMO_MISSION, decompose_mission
+    from services.swarm import Swarm
 
-    dispatch(grid, payloads, report, float(context.run_config.get("timeout", 120)))
+    cfg = context.run_config
+    prompt = str(cfg.get("prompt", "")) or DEMO_MISSION
+    mission = StandaloneMission(prompt)
+    swarm = Swarm()
+    swarm.alive = True  # accept work before the loop starts; it runs below
+    swarm.submit_mission("mission", mission)
+
+    target = str(cfg.get("attack", ""))
+    if target:
+        # Decomposition is deterministic, so the target id is known up front.
+        # The attack is processed right after dispatch: it lands mid-mission.
+        ids = [s.id for s in decompose_mission(prompt, "mission") if s.role == target]
+        if ids:
+            swarm.attack("mission", ids[0])
+        else:
+            print(f"SECURITY  no worker with role {target!r}; attack skipped")
+
+    swarm.run(lambda: GridTransport(grid, None, float(cfg.get("timeout", 120))), until_idle=True)
+    print("\n" + (mission.result or "No result."))
