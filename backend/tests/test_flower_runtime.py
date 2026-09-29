@@ -131,3 +131,20 @@ def test_model_failure_falls_back_to_seeded(monkeypatch):
     monkeypatch.setattr(rt.urlrequest, "urlopen", fail)
     (r,) = run_workers(SPECS[:1], use_flower=False)
     assert r.status == COMPLETE and r.source == "seeded"
+
+
+def test_payload_prefers_private_fragment_text():
+    top_level_text = "TOP LEVEL MISSION TEXT"
+    spec = {
+        "id": "ctx",
+        "role": "architecture",
+        "task": "Review isolated router interface",
+        "allowed_context": ["router_interface"],
+        "context": {"router_interface": "Only this narrow router fragment."},
+        "network_identity": "node-99",
+        "top_level_text": top_level_text,
+    }
+    payload = rt._payload(spec, 0)
+    assert payload["allowed_context"] == ["router_interface"]
+    assert payload["context"] == ["Only this narrow router fragment."]
+    assert top_level_text not in json.dumps(payload)
