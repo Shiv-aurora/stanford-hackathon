@@ -51,7 +51,7 @@ def _load_dotenv(path: str) -> None:
 
 _load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))
 
-FLOWER_TIMEOUT_S =float(os.environ.get("CONSTELLATION_FLOWER_TIMEOUT", "120"))
+FLOWER_TIMEOUT_S = float(os.environ.get("CONSTELLATION_FLOWER_TIMEOUT", "120"))
 MODEL_TIMEOUT_S = float(os.environ.get("CONSTELLATION_MODEL_TIMEOUT", "30"))
 
 StatusCallback = Callable[["WorkerResult"], None]
