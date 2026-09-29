@@ -36,7 +36,22 @@ RUNNING = "running"
 COMPLETE = "complete"
 FAILED = "failed"
 
-FLOWER_TIMEOUT_S = float(os.environ.get("CONSTELLATION_FLOWER_TIMEOUT", "120"))
+def _load_dotenv(path: str) -> None:
+    """Fill missing env vars from backend/.env (real env vars win)."""
+    try:
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    key, value = line.split("=", 1)
+                    os.environ.setdefault(key.strip(), value.strip().strip("'\""))
+    except OSError:
+        pass
+
+
+_load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))
+
+FLOWER_TIMEOUT_S =float(os.environ.get("CONSTELLATION_FLOWER_TIMEOUT", "120"))
 MODEL_TIMEOUT_S = float(os.environ.get("CONSTELLATION_MODEL_TIMEOUT", "30"))
 
 StatusCallback = Callable[["WorkerResult"], None]
