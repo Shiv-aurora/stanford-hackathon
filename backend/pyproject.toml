@@ -1,6 +1,12 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
-name = "constellation-backend"
+name = "constellation"
 version = "0.1.0"
+description = "Secure parallel agent swarm: compartmentalized workers run as Flower ClientApps, each seeing only its own context slice."
+license = { file = "LICENSE" }
 requires-python = ">=3.11"
 dependencies = [
     "fastapi",
@@ -11,6 +17,21 @@ dependencies = [
 [dependency-groups]
 dev = ["pytest"]
 
+[tool.hatch.build.targets.wheel]
+packages = ["services"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+
+[tool.flwr.app]
+publisher = "your-flower-username"  # TODO: set to your Flower account username before publishing
+
+[tool.flwr.app.components]
+serverapp = "services.flower_app:server_app"
+clientapp = "services.flower_app:client_app"
+
+[tool.flwr.app.config]
+worker-specs = ""  # JSON list of worker specs; empty runs the built-in demo
+timeout = 120
+

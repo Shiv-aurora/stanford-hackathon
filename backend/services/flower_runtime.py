@@ -233,80 +233,27 @@ class _Tracker:
 # ---------------------------------------------------------------------------
 
 
-def _build_client_app():
-    from flwr.app import ConfigRecord, Context, Message, RecordDict
-    from flwr.clientapp import ClientApp
-
-    app = ClientApp()
-
-    @app.query()
-    def run_task(msg: Message, context: Context) -> Message:
-        task = msg.content["task"]
-        payload = {
-            "id": task["id"],
-            "role": task["role"],
-            "task": task["task"],
-            "allowed_context": list(task["allowed_context"]),
-            "network_identity": task["network_identity"],
-            "fail": bool(task["fail"]),
-        }
-        output, source = execute_task(payload)
-        reply = RecordDict(
-            {"result": ConfigRecord({"worker_id": payload["id"], "output": output, "source": source})}
-        )
-        return Message(reply, reply_to=msg)
-
-    return app
-
-
 def _run_flower(payloads: list[dict[str, Any]], tracker: _Tracker) -> None:
-    from flwr.app import ConfigRecord, Context, Message, RecordDict
+    from flwr.app import Context
     from flwr.serverapp import Grid, ServerApp
     from flwr.simulation import run_simulation
+
+    from services.flower_app import client_app, dispatch
 
     n = len(payloads)
     errors: list[BaseException] = []
     server = ServerApp()
 
     @server.main()
-    def dispatch(grid: Grid, context: Context) -> None:
+    def main(grid: Grid, context: Context) -> None:
         try:
-            deadline = time.time() + FLOWER_TIMEOUT_S
-            while len(node_ids := sorted(grid.get_node_ids())) < n:
-                if time.time() > deadline:
-                    raise TimeoutError("Flower nodes did not register")
-                time.sleep(0.05)
-
-            # One worker per SuperNode; each message holds only that worker's slice.
-            messages = []
-            for node_id, p in zip(node_ids, payloads):
-                content = RecordDict({"task": ConfigRecord(p)})
-                msg = Message(content, dst_node_id=node_id, message_type="query")
-                messages.append((msg, p["id"], node_id))
-            ids = grid.push_messages([m for m, _, _ in messages])
-            by_msg: dict[str, str] = {}
-            for msg_id, (_, worker_id, node_id) in zip(ids, messages):
-                by_msg[msg_id] = worker_id
-                tracker.set(worker_id, RUNNING, runtime="flower", node_id=str(node_id))
-
-            waiting = set(by_msg)
-            while waiting and time.time() < deadline:
-                for reply in grid.pull_messages(list(waiting)):
-                    msg_id = reply.metadata.reply_to_message_id
-                    waiting.discard(msg_id)
-                    worker_id = by_msg[msg_id]
-                    if reply.has_error():
-                        tracker.set(worker_id, FAILED, error=reply.error.reason)
-                    else:
-                        result = reply.content["result"]
-                        tracker.set(worker_id, COMPLETE, output=result["output"], source=result["source"])
-                time.sleep(0.05)
+            dispatch(grid, payloads, tracker.set, FLOWER_TIMEOUT_S)
         except BaseException as exc:  # surfaced after the simulation stops
             errors.append(exc)
 
     run_simulation(
         server_app=server,
-        client_app=_build_client_app(),
+        client_app=client_app,
         num_supernodes=n,
         backend_config={
             "client_resources": {"num_cpus": 1, "num_gpus": 0.0},

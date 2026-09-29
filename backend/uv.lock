@@ -335,9 +335,9 @@ wheels = [
 ]
 
 [[package]]
-name = "constellation-backend"
+name = "constellation"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
     { name = "flwr", extra = ["simulation"] },
