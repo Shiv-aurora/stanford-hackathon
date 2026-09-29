@@ -29,6 +29,7 @@ def run_task(msg: Message, context: Context) -> Message:
         "role": task["role"],
         "task": task["task"],
         "allowed_context": list(task["allowed_context"]),
+        "context": list(task["context"]),
         "network_identity": task["network_identity"],
         "fail": bool(task["fail"]),
     }
