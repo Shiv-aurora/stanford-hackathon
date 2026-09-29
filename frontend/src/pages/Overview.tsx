@@ -51,6 +51,29 @@ function angleOf(i: number, n: number) {
   return -90 + step / 2 + i * step;
 }
 
+function polar(deg: number, r: number) {
+  const a = (deg * Math.PI) / 180;
+  return { x: CX + r * Math.cos(a), y: CY + r * Math.sin(a) };
+}
+
+/** SVG path for the ring sector between two angles (one worker's compartment). */
+function sector(a0: number, a1: number, r0: number, r1: number) {
+  const f = (deg: number, r: number) => {
+    const p = polar(deg, r);
+    return p.x.toFixed(2) + ' ' + p.y.toFixed(2);
+  };
+  const large = a1 - a0 > 180 ? 1 : 0;
+  return `M ${f(a0, r0)} L ${f(a0, r1)} A ${r1} ${r1} 0 ${large} 1 ${f(a1, r1)} L ${f(a1, r0)} A ${r0} ${r0} 0 ${large} 0 ${f(a0, r0)} Z`;
+}
+
+/** Legend buckets for the swarm map: [label, colour, statuses]. */
+const LEGEND: [string, string, UiStatus[]][] = [
+  ['running', K.blue, ['run', 'prov']],
+  ['complete', K.green, ['done']],
+  ['queued', '#737373', ['queued']],
+  ['contained', K.red, ['detect', 'iso', 'quar', 'revoke', 'failed']],
+];
+
 function segColor(st: UiStatus) {
   if (st === 'run') return K.blue;
   if (st === 'done') return K.green;
@@ -70,6 +93,8 @@ interface NodeVM {
   lx: number;
   ta: 'left' | 'right';
   star: string;
+  share: number;
+  st: UiStatus;
   aria: string;
   ring: string;
   pct: string;
@@ -103,13 +128,15 @@ export function Overview({
   const redPhase = phase >= 1 && phase <= 4;
 
   // --- swarm map -----------------------------------------------------------
-  const mkNode = (idx: number, deg: number, rad: number, w: { star: string; key: string }, st: UiStatus, pctNum: number, visible: boolean, pulse: boolean): NodeVM => {
+  const mkNode = (idx: number, deg: number, rad: number, w: { star: string; key: string; share: number }, st: UiStatus, pctNum: number, visible: boolean, pulse: boolean): NodeVM => {
     const selected = sel === idx;
     return {
       ...place(deg, rad),
       key: w.key,
       idx,
       star: w.star,
+      share: w.share,
+      st,
       aria: w.star + ', ' + STY[st][0],
       ring: STY[st][3],
       pct: Math.round(pctNum) + '%',
@@ -138,7 +165,7 @@ export function Overview({
       N,
       angleOf(t, N),
       R,
-      { star: rep ? rep.star : 'Spica', key: rep ? rep.key : '__replacement' },
+      { star: rep ? rep.star : 'Spica', key: rep ? rep.key : '__replacement', share: rep ? rep.share : rows[t]?.share ?? 0 },
       phase === 5 ? 'prov' : phase === 6 && rep ? rep.status : 'run',
       phase >= 5 && rep ? rep.pct : 0,
       phase >= 5,
@@ -167,6 +194,34 @@ export function Overview({
     flow: phase === 6 && !!rep && rep.status !== 'done',
     delay: '0s',
   });
+
+  // Compartment walls sit halfway between neighbouring workers.
+  const stepDeg = 360 / Math.max(1, N);
+  const walls = N > 1 ? rows.map((_, i) => angleOf(i, N) + stepDeg / 2) : [];
+  // Highlighted compartment: the hovered worker's, or the compromised one while it is being contained.
+  const hlSlot = redPhase ? t : sel === null ? null : sel === N ? (phase >= 5 ? t : null) : sel;
+  const hlSector =
+    hlSlot !== null && N > 0 && rows[hlSlot]
+      ? {
+          d: sector(angleOf(hlSlot, N) - stepDeg / 2, angleOf(hlSlot, N) + stepDeg / 2, 28, 112),
+          fill: redPhase ? 'rgba(239,68,68,0.10)' : 'rgba(96,165,250,0.07)',
+          edge: redPhase ? 'rgba(239,68,68,0.45)' : 'rgba(147,197,253,0.30)',
+        }
+      : null;
+  const ticks = Array.from({ length: 48 }, (_, k) => {
+    const deg = -90 + k * 7.5;
+    const major = k % 6 === 0;
+    const a = polar(deg, 123),
+      b = polar(deg, major ? 130 : 126);
+    return { x1: a.x, y1: a.y, x2: b.x, y2: b.y, major };
+  });
+  const sweepC = redPhase ? '239,68,68' : '96,165,250';
+  const legend = LEGEND.map(([label, color, sts]) => ({
+    label,
+    color,
+    // A contained worker leaves the ring, so count it from the mission record instead.
+    n: label === 'contained' ? view.allWorkers.filter((w) => w.tainted).length : nodes.filter((n) => n.visible && sts.includes(n.st)).length,
+  }));
 
   // --- detail card under the map ------------------------------------------
   let d: { title: string; sub: string; dot: string; pill: null | [string, string, string]; body: string };
@@ -441,6 +496,39 @@ export function Overview({
                 />
                 <div style={{ position: 'absolute', left: 92, top: 43, width: 184, height: 184, boxSizing: 'border-box', borderRadius: '50%', border: '1px solid rgba(255,255,255,0.06)' }} />
                 <div style={{ position: 'absolute', left: 139, top: 90, width: 90, height: 90, boxSizing: 'border-box', borderRadius: '50%', border: '1px solid rgba(255,255,255,0.04)' }} />
+                {/* Coordinator sweep: keeps the enclave visibly live even once every worker has finished. */}
+                <div
+                  aria-hidden="true"
+                  style={{
+                    position: 'absolute',
+                    left: CX - 112,
+                    top: CY - 112,
+                    width: 224,
+                    height: 224,
+                    borderRadius: '50%',
+                    background: `conic-gradient(from 0deg, transparent 0deg 290deg, rgba(${sweepC},0.07) 350deg, rgba(${sweepC},0.22) 359deg, transparent 360deg)`,
+                    WebkitMaskImage: 'radial-gradient(circle, transparent 26px, #000 28px)',
+                    maskImage: 'radial-gradient(circle, transparent 26px, #000 28px)',
+                    animation: 'crotate 7s linear infinite',
+                    transition: 'background 0.5s',
+                  }}
+                />
+                <svg aria-hidden="true" width={368} height={270} style={{ position: 'absolute', left: 0, top: 0, pointerEvents: 'none' }}>
+                  {hlSector && <path d={hlSector.d} fill={hlSector.fill} stroke={hlSector.edge} strokeWidth={0.75} style={{ transition: 'fill 0.4s' }} />}
+                  {walls.map((deg, i) => {
+                    const a = polar(deg, 30),
+                      b = polar(deg, 112);
+                    return <line key={i} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="rgba(255,255,255,0.07)" strokeWidth={1} strokeDasharray="2 4" />;
+                  })}
+                  {ticks.map((k, i) => (
+                    <line key={i} x1={k.x1} y1={k.y1} x2={k.x2} y2={k.y2} stroke={k.major ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.08)'} strokeWidth={1} />
+                  ))}
+                </svg>
+                <span style={{ ...mapNote, left: 12, top: 10 }}>{N} compartments</span>
+                <span style={{ ...mapNote, right: 12, top: 10, display: 'flex', alignItems: 'center', gap: 6, color: redPhase ? '#FCA5A5' : mapNote.color }}>
+                  <span style={{ width: 14, borderTop: `1px dashed ${redPhase ? '#EF4444' : 'rgba(255,255,255,0.28)'}` }} />
+                  quarantine perimeter
+                </span>
                 {links.map((l, i) => (
                   <div
                     key={i}
@@ -507,6 +595,12 @@ export function Overview({
                 >
                   <LockIcon size={14} stroke="#ECECEC" width={2} />
                 </div>
+                <span
+                  aria-hidden="true"
+                  style={{ position: 'absolute', left: CX - 50, top: CY + 27, width: 100, textAlign: 'center', fontFamily: MONO, fontSize: 8.5, letterSpacing: '0.16em', color: '#6B6B70' }}
+                >
+                  COORDINATOR
+                </span>
                 {nodes.map((n) => (
                   <button
                     key={n.idx === N ? '__replacement' : n.idx}
@@ -576,7 +670,7 @@ export function Overview({
                       style={{
                         position: 'absolute',
                         left: n.lx,
-                        top: 8,
+                        top: 1,
                         width: 76,
                         textAlign: n.ta,
                         fontSize: 12,
@@ -588,7 +682,31 @@ export function Overview({
                     >
                       {n.star}
                     </span>
+                    <span
+                      style={{
+                        position: 'absolute',
+                        left: n.lx,
+                        top: 17,
+                        width: 76,
+                        textAlign: n.ta,
+                        fontFamily: MONO,
+                        fontSize: 10,
+                        color: isRed(n.st) ? 'rgba(252,165,165,0.7)' : '#6B6B70',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {n.share}% context
+                    </span>
                   </button>
+                ))}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14, fontSize: 12, color: '#8E8E8E' }}>
+                {legend.map((g) => (
+                  <span key={g.label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: g.color, boxShadow: g.n ? `0 0 6px ${g.color}` : 'none', opacity: g.n ? 1 : 0.45 }} />
+                    <span style={{ fontFamily: MONO, color: g.n ? '#ECECEC' : '#6B6B70' }}>{g.n}</span>
+                    {g.label}
+                  </span>
                 ))}
               </div>
               <div
@@ -653,7 +771,9 @@ export function Overview({
   );
 }
 
-const bigNum: CSSProperties = { fontSize: 26, fontWeight: 600, letterSpacing: '-0.03em' };
+const mapNote = { position: 'absolute', fontFamily: MONO, fontSize: 10, color: '#5C5C62', whiteSpace: 'nowrap', pointerEvents: 'none' } satisfies CSSProperties;
+
+const bigNum: CSSProperties ={ fontSize: 26, fontWeight: 600, letterSpacing: '-0.03em' };
 
 function Metric({ label, first, children }: { label: string; first?: boolean; children: ReactNode }) {
   return (
