@@ -1,7 +1,7 @@
 """Shared Pydantic models. Field names follow CONTRACT.md; do not redesign."""
 
 from enum import Enum
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -31,6 +31,9 @@ class Worker(BaseModel):
     status: WorkerStatus = WorkerStatus.QUEUED
     allowed_context: List[str] = Field(default_factory=list)
     blocked_context: List[str] = Field(default_factory=list)
+    # Actual narrow fragment text is internal-only: stored for execution but
+    # excluded from API responses so the UI only sees access labels.
+    context: Dict[str, str] = Field(default_factory=dict, exclude=True)
     context_exposure: float = Field(0.0, ge=0.0, le=1.0)
     tainted: bool = False
     quarantined: bool = False
