@@ -45,11 +45,18 @@ export default function App() {
 
   const phase = view.incident?.phase ?? 0;
   const missionDot = view.approved ? K.green : phase === 0 || phase === 6 ? K.blue : K.red;
+  const missions = view.missions.map((m) => ({
+    id: m.id,
+    name: m.name,
+    current: m.id === view.id,
+    // Open mission keeps the mockup's live dot; others show where they ended up.
+    dot: m.id === view.id ? missionDot : m.status === 'complete' || m.status === 'approved' ? K.green : m.status === 'failed' ? K.red : m.status === 'running' ? K.blue : '#525252',
+  }));
 
   return (
     <Frame>
       <Sky seed={SKY_SEED[route.page]} />
-      <Sidebar active={route.page} missionName={view.name} missionDot={missionDot} onNewMission={() => setDialog('new')} />
+      <Sidebar active={route.page} missions={missions} onSelectMission={actions.selectMission} onNewMission={() => setDialog('new')} />
       {route.page === 'overview' && (
         <Overview
           view={view}

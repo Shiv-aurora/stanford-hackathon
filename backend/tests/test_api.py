@@ -35,6 +35,14 @@ def test_create_and_read_mission(client):
     assert fetched["result"]
 
 
+def test_list_missions(client):
+    assert client.get("/missions").json() == []
+    first, second = _create(client), _create(client)
+    listed = client.get("/missions").json()
+    assert [m["id"] for m in listed] == [first["id"], second["id"]]
+    assert all(m["created_at"] for m in listed)
+
+
 def test_empty_prompt_rejected(client):
     assert client.post("/mission", json={"prompt": ""}).status_code == 422
 

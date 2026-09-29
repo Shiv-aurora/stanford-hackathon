@@ -20,9 +20,9 @@ A worker spec has `id`, `role`, `task`, `allowed_context` and optional
 ## Optional model calls
 
 Set `FLWR_MODEL_API_ENDPOINT`, `FLWR_MODEL_ID` and `FLWR_MODEL_API_KEY`
-(OpenAI Responses-compatible endpoint) on the nodes, or put them in a local
-`.env` (never committed or bundled). Without them, workers return deterministic
-seeded output.
+(OpenAI Responses-compatible endpoint) on the nodes, or copy `.env.example` to
+a local `.env` (never committed or bundled). Without them, workers return
+deterministic seeded output.
 
 ## Tests
 

@@ -265,6 +265,9 @@ export class MockMission implements MissionActions {
     this.reset();
   };
 
+  /** Only Orion is simulated; the other sidebar missions are the mockup's static entries. */
+  selectMission = () => {};
+
   private emit() {
     this.view = this.compute();
     this.listeners.forEach((fn) => fn());
@@ -327,13 +330,14 @@ export class MockMission implements MissionActions {
     if (attacked && replacement) allWorkers.splice(t, 1, attacked, replacement);
     else if (attacked) allWorkers.splice(t, 1, attacked);
 
+    const status = complete ? (this.approved ? 'approved' : 'complete') : 'running';
     return {
       mode: 'mock',
       id: 'orion',
       name: 'Orion',
       prompt: this.prompt,
       subtitle: 'Adaptive optimizer research · started 12:58 · coordinator in enclave',
-      status: complete ? (this.approved ? 'approved' : 'complete') : 'running',
+      status,
       workers: rows,
       allWorkers,
       incident,
@@ -342,6 +346,12 @@ export class MockMission implements MissionActions {
       result: complete ? synthesize(rows, incident) : null,
       approved: complete && this.approved,
       error: null,
+      missions: [
+        { id: 'orion', name: 'Orion', status },
+        { id: 'halcyon', name: 'Halcyon', status: 'complete' },
+        { id: 'meridian', name: 'Meridian', status: 'created' },
+        { id: 'tessera', name: 'Tessera', status: 'created' },
+      ],
     };
   }
 }

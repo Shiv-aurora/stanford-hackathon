@@ -87,15 +87,22 @@ const missionItem = (active: boolean): CSSProperties =>
 
 const dot = (c: string): CSSProperties => ({ width: 7, height: 7, borderRadius: '50%', background: c });
 
+export interface SidebarMission {
+  id: string;
+  name: string;
+  dot: string;
+  current: boolean;
+}
+
 export function Sidebar({
   active,
-  missionName,
-  missionDot,
+  missions,
+  onSelectMission,
   onNewMission,
 }: {
   active: NavKey;
-  missionName: string;
-  missionDot: string;
+  missions: SidebarMission[];
+  onSelectMission: (id: string) => void;
   onNewMission: () => void;
 }) {
   return (
@@ -157,22 +164,20 @@ export function Sidebar({
         </a>
       </nav>
       <div style={{ marginTop: 20, padding: '0 12px 6px', fontSize: 12, fontWeight: 500, color: '#8E8E8E' }}>Missions</div>
-      <a href="#/" style={missionItem(active !== 'federation')}>
-        <span style={dot(missionDot)} />
-        {missionName}
-      </a>
-      <a href="#/" style={missionItem(false)}>
-        <span style={dot('#22C55E')} />
-        Halcyon
-      </a>
-      <a href="#/" style={missionItem(false)}>
-        <span style={dot('#525252')} />
-        Meridian
-      </a>
-      <a href="#/" style={missionItem(false)}>
-        <span style={dot('#525252')} />
-        Tessera
-      </a>
+      <div style={{ minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {missions.map((m) => (
+          <a
+            key={m.id}
+            href="#/"
+            onClick={() => onSelectMission(m.id)}
+            aria-current={m.current ? 'true' : undefined}
+            style={{ ...missionItem(m.current && active !== 'federation'), flexShrink: 0 }}
+          >
+            <span style={dot(m.dot)} />
+            {m.name}
+          </a>
+        ))}
+      </div>
       <div style={{ marginTop: 'auto', height: 52, display: 'flex', alignItems: 'center', gap: 10, padding: '0 8px', borderTop: '1px solid #1C1C1F' }}>
         <span
           style={{

@@ -9,7 +9,7 @@
 // Backend quirks are absorbed here, never in the components.
 
 import { DEMO_PROMPT, MockMission, TICK_MS } from './mock';
-import type { Incident, MissionActions, MissionStatus, MissionView, UiStatus, WorkerView } from './types';
+import type { Incident, MissionActions, MissionStatus, MissionSummary, MissionView, UiStatus, WorkerView } from './types';
 
 // ---------------------------------------------------------------------------
 // Contract types (CONTRACT.md)
@@ -44,6 +44,7 @@ export interface BackendMission {
   progress: number;
   result: string | null;
   approved: boolean;
+  created_at?: number | null;
 }
 
 export interface BackendResult {
@@ -87,6 +88,7 @@ async function http<T>(method: 'GET' | 'POST', path: string, body?: unknown): Pr
 
 export const api = {
   health: () => http<{ status: string }>('GET', '/health'),
+  listMissions: () => http<BackendMission[]>('GET', '/missions'),
   createMission: (prompt: string) => http<BackendMission>('POST', '/mission', { prompt }),
   getMission: (id: string) => http<BackendMission>('GET', `/mission/${encodeURIComponent(id)}`),
   getWorkers: (id: string) => http<BackendWorker[]>('GET', `/mission/${encodeURIComponent(id)}/workers`),
@@ -100,6 +102,8 @@ export const api = {
 
 const STARS = ['Vega', 'Altair', 'Deneb', 'Rigel', 'Sirius', 'Capella', 'Antares', 'Polaris', 'Arcturus', 'Procyon', 'Aldebaran', 'Betelgeuse'];
 const REPLACEMENT_STARS = ['Spica', 'Regulus', 'Castor', 'Pollux', 'Mimosa', 'Hadar'];
+/** Mission code names, assigned in creation order. */
+const CODE_NAMES = ['Orion', 'Halcyon', 'Meridian', 'Tessera', 'Lyra', 'Cygnus', 'Vela', 'Carina', 'Draco', 'Aquila', 'Corvus', 'Pavo'];
 const EXTRA_UNREACH = ['Other workers’ outputs', 'Any other credential'];
 /** Containment advances one step every 2 mock ticks. */
 const PHASE_MS = TICK_MS * 2;
@@ -164,6 +168,20 @@ function toWorker(w: BackendWorker, slot: number, star: string, index: number, p
   };
 }
 
+/** Same keywords the backend decomposer uses to pick its AI-research split. */
+const AI_KEYWORDS = ['model', 'training', 'transformer', 'llm', 'neural', 'optimizer', 'benchmark', 'dataset', 'gpu', 'architecture', 'fine-tun', 'inference'];
+
+function missionKind(prompt: string): string {
+  const p = prompt.toLowerCase();
+  return AI_KEYWORDS.filter((k) => p.includes(k)).length >= 2 ? 'Confidential AI research' : 'Confidential research';
+}
+
+function codeName(index: number): string {
+  const base = CODE_NAMES[index % CODE_NAMES.length];
+  const round = Math.floor(index / CODE_NAMES.length);
+  return round ? `${base} ${round + 1}` : base;
+}
+
 function formatClock(ms: number): string {
   const d = new Date(ms);
   return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
@@ -185,6 +203,7 @@ function emptyView(prompt: string, error: string | null): MissionView {
     result: null,
     approved: false,
     error,
+    missions: [],
   };
 }
 
@@ -195,6 +214,8 @@ export class ApiMission implements MissionActions {
   private missionId: string | null = null;
   private createdAt = Date.now();
   private mission: BackendMission | null = null;
+  /** Every mission on the backend, in creation order (for the sidebar and code names). */
+  private missionList: BackendMission[] = [];
   private workers: BackendWorker[] = [];
   private result: BackendResult | null = null;
   private error: string | null = null;
@@ -205,6 +226,8 @@ export class ApiMission implements MissionActions {
   private frozenPct = new Map<string, number>();
   private timer: ReturnType<typeof setInterval> | null = null;
   private busy = false;
+  /** A poll was requested while one was in flight (e.g. right after switching missions). */
+  private again = false;
   private listeners = new Set<Listener>();
   private view: MissionView = emptyView(DEMO_PROMPT, null);
 
@@ -257,6 +280,14 @@ export class ApiMission implements MissionActions {
 
   reset = () => this.createMission(this.mission?.prompt || this.prompt);
 
+  selectMission = (id: string) => {
+    if (id === this.missionId) return;
+    const m = this.missionList.find((x) => x.id === id);
+    if (!m) return;
+    this.open(m);
+    void this.poll();
+  };
+
   approve = () => {
     if (!this.missionId) return;
     api
@@ -275,24 +306,31 @@ export class ApiMission implements MissionActions {
     api
       .createMission(this.prompt)
       .then((m) => {
-        this.missionId = m.id;
-        this.createdAt = Date.now();
-        this.mission = m;
-        this.workers = [];
-        this.result = null;
-        this.runningSince.clear();
-        this.attackedAt.clear();
-        this.frozenPct.clear();
-        this.error = null;
-        try {
-          sessionStorage.setItem(STORE_KEY, JSON.stringify({ id: m.id, createdAt: this.createdAt }));
-        } catch {
-          /* storage unavailable */
-        }
+        this.missionList = [...this.missionList.filter((x) => x.id !== m.id), m];
+        this.open(m);
         return this.poll();
       })
       .catch((e: unknown) => this.fail(e));
   };
+
+  /** Switch the view to `m`, dropping the previous mission's client-side timing. */
+  private open(m: BackendMission) {
+    this.missionId = m.id;
+    this.createdAt = m.created_at ? m.created_at * 1000 : Date.now();
+    this.mission = m;
+    this.workers = [];
+    this.result = null;
+    this.runningSince.clear();
+    this.attackedAt.clear();
+    this.frozenPct.clear();
+    this.error = null;
+    try {
+      sessionStorage.setItem(STORE_KEY, JSON.stringify({ id: m.id, createdAt: this.createdAt }));
+    } catch {
+      /* storage unavailable */
+    }
+    this.emit();
+  }
 
   private upsert(w: BackendWorker) {
     const i = this.workers.findIndex((x) => x.id === w.id);
@@ -315,32 +353,52 @@ export class ApiMission implements MissionActions {
   }
 
   private async poll() {
-    if (this.busy) return;
+    if (this.busy) {
+      this.again = true;
+      return;
+    }
     this.busy = true;
     try {
+      this.missionList = await api.listMissions();
       if (!this.missionId) {
-        await api.health();
-        this.createMission(this.prompt);
-        return;
+        // Reopen the newest mission rather than starting a new one on every page load.
+        const newest = this.missionList[this.missionList.length - 1];
+        if (!newest) {
+          this.createMission(this.prompt);
+          return;
+        }
+        this.open(newest);
       }
+      const id = this.missionId as string;
+      let mission: BackendMission;
       try {
-        this.mission = await api.getMission(this.missionId);
+        mission = await api.getMission(id);
       } catch (e) {
-        // Backend restarted and lost its in-memory mission: start a fresh one.
+        // Backend restarted and lost its in-memory mission: pick another or start fresh.
         if (e instanceof Error && / 404 /.test(e.message)) {
-          this.missionId = null;
+          if (this.missionId === id) this.missionId = null;
           return;
         }
         throw e;
       }
-      this.workers = await api.getWorkers(this.missionId);
-      await this.refreshResult();
+      const workers = await api.getWorkers(id);
+      const finished = mission.status === 'complete' || mission.status === 'approved';
+      const result = finished ? await api.getResult(id) : null;
+      // The user may have switched missions while these requests were in flight.
+      if (this.missionId !== id) return;
+      this.mission = mission;
+      this.workers = workers;
+      this.result = result;
       this.error = null;
     } catch (e) {
       this.error = e instanceof Error ? `Backend unreachable (${e.message})` : 'Backend unreachable';
     } finally {
       this.busy = false;
       this.emit();
+      if (this.again) {
+        this.again = false;
+        void this.poll();
+      }
     }
   }
 
@@ -366,6 +424,11 @@ export class ApiMission implements MissionActions {
   private compute(): MissionView {
     const m = this.mission;
     if (!m) return emptyView(this.prompt, this.error);
+    const listed = this.missionList.some((x) => x.id === m.id) ? this.missionList : [...this.missionList, m];
+    const missions: MissionSummary[] = listed
+      .map((x, i) => ({ id: x.id, name: codeName(i), status: x.id === m.id ? m.status : x.status }))
+      .reverse();
+    const name = missions.find((x) => x.id === m.id)?.name ?? 'Orion';
     const now = Date.now();
     const byId = new Map(this.workers.map((w) => [w.id, w]));
     const ordered = [...(m.worker_ids.map((id) => byId.get(id)).filter(Boolean) as BackendWorker[])];
@@ -439,9 +502,9 @@ export class ApiMission implements MissionActions {
     return {
       mode: 'api',
       id: m.id,
-      name: 'Orion',
+      name,
       prompt: m.prompt,
-      subtitle: `Confidential AI research · started ${formatClock(this.createdAt)} · coordinator in enclave`,
+      subtitle: `${missionKind(m.prompt)} · started ${formatClock(this.createdAt)} · coordinator in enclave`,
       status: m.status,
       workers,
       allWorkers,
@@ -451,6 +514,7 @@ export class ApiMission implements MissionActions {
       result: this.result?.result ?? m.result,
       approved: m.approved,
       error: this.error,
+      missions,
     };
   }
 }

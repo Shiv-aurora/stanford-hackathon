@@ -54,6 +54,8 @@ class Mission(BaseModel):
     progress: float = Field(0.0, ge=0.0, le=1.0)
     result: Optional[str] = None
     approved: bool = False
+    # Optional extra: lets the UI order missions and show when each started.
+    created_at: Optional[float] = None
 
 
 class MissionCreate(BaseModel):

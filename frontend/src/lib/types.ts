@@ -75,6 +75,14 @@ export interface Incident {
   quarantinedOutputs: number;
 }
 
+/** One entry in the sidebar's mission list. */
+export interface MissionSummary {
+  id: string;
+  /** Code name, e.g. "Orion". */
+  name: string;
+  status: MissionStatus;
+}
+
 export interface MissionView {
   mode: 'mock' | 'api';
   id: string;
@@ -96,6 +104,8 @@ export interface MissionView {
   approved: boolean;
   /** Set when the backend cannot be reached (api mode only). */
   error: string | null;
+  /** Every mission for the sidebar, newest first (includes this one). */
+  missions: MissionSummary[];
 }
 
 export interface MissionActions {
@@ -105,4 +115,6 @@ export interface MissionActions {
   reset(): void;
   approve(): void;
   createMission(prompt: string): void;
+  /** Open another mission from the sidebar. */
+  selectMission(id: string): void;
 }

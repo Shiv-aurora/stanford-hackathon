@@ -148,7 +148,9 @@ def health() -> Dict[str, Any]:
 
 @app.post("/mission", response_model=Mission)
 def create_mission(body: MissionCreate, background: BackgroundTasks) -> Mission:
-    mission = store.add_mission(Mission(id=f"m-{uuid.uuid4().hex[:8]}", prompt=body.prompt))
+    mission = store.add_mission(
+        Mission(id=f"m-{uuid.uuid4().hex[:8]}", prompt=body.prompt, created_at=time.time())
+    )
     for i, spec in enumerate(decompose_mission(body.prompt), start=1):
         store.add_worker(Worker(
             id=f"{mission.id}-w{i:02d}",
@@ -164,6 +166,13 @@ def create_mission(body: MissionCreate, background: BackgroundTasks) -> Mission:
     mission.status = MissionStatus.RUNNING
     background.add_task(_execute, list(mission.worker_ids))
     return mission
+
+
+@app.get("/missions", response_model=List[Mission])
+def list_missions() -> List[Mission]:
+    """Every mission in creation order (in-memory, so empty after a restart)."""
+    with store.lock:
+        return list(store.missions.values())
 
 
 @app.get("/mission/{mission_id}", response_model=Mission)
