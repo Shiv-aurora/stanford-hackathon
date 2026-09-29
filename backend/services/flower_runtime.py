@@ -179,16 +179,21 @@ def _get(spec: Any, key: str, default: Any = None) -> Any:
 
 def _payload(spec: Any, index: int) -> dict[str, Any]:
     """Extract the narrow per-worker payload. Nothing else is sent."""
+    labels = [str(c) for c in (_get(spec, "allowed_context") or [])]
     context_map = _get(spec, "context") or {}
     if isinstance(context_map, Mapping):
         context = [str(v) for v in context_map.values() if str(v).strip()]
     else:
         context = [str(v) for v in context_map if str(v).strip()]
+    # Standalone/legacy specs may only have labels. Real backend workers pass
+    # fragment text explicitly; labels are only a resilient fallback.
+    if not context:
+        context = list(labels)
     return {
         "id": str(_get(spec, "id") or f"worker-{index}"),
         "role": str(_get(spec, "role") or "worker"),
         "task": str(_get(spec, "task") or ""),
-        "allowed_context": [str(c) for c in (_get(spec, "allowed_context") or [])],
+        "allowed_context": labels,
         "context": context,
         "network_identity": str(_get(spec, "network_identity") or f"node-{index + 1:02d}"),
         "fail": bool(_get(spec, "fail", False)),
