@@ -178,7 +178,7 @@ without an external model API.
 - Final synthesis reported `Coverage: 8/8` and excluded one quarantined output.
 - The `CONSTELLATION_RUN_SUMMARY` log entry records the worker/node mapping.
 
-The web flow is **not yet cloud-validated**. Run `6218429797578914393` failed
+The original HTTPS web flow failed its cloud test. Run `6218429797578914393` failed
 before retrieving the mission: SuperGrid's outbound proxy returned
 `Tunnel connection failed: 403 Forbidden` for the Cloudflare temporary callback
 origin. No request reached the local callback proxy. External probes reached it
@@ -186,3 +186,16 @@ successfully, with ordinary API routes returning 404 and unsigned callbacks 403.
 An outbound-approved HTTPS callback is required for the real interactive web
 workflow. The signed web lifecycle, including attack, replacement and approval,
 is covered by the integration test using a simulated Grid.
+
+
+### Native control relay — verified 2026-09-30 UTC
+
+Run `1204237711088322358`, mission `m-2310fb16`, used dedicated control node
+`7566367092358460027` and no public callback (the Cloudflare tunnel was stopped).
+The real web API received running/completed snapshots, delivered an attack to
+ServerApp, and received the quarantine and replacement acknowledgement. Nine
+distinct worker node IDs were observed, excluding the control node; final
+coverage was 8/8 with one quarantined output excluded. The web approval endpoint
+accepted approval and the cloud control session closed. These checks used the
+synthetic mission and deterministic outputs. Backend tests: 91 passed; frontend
+production build passed. The initial SuperGrid queue took several minutes.
