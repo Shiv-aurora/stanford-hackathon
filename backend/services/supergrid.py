@@ -102,6 +102,7 @@ class SuperGrid:
     def _launch(self, mission_id: str, federation: str, bridge: str, cli: str) -> None:
         session = self.sessions[mission_id]
         logs = None
+        remote_closed = False
         try:
             # Keep the config outside the FAB. It contains identifiers only:
             # no prompt, API credentials, model keys, or signing secrets.
@@ -135,6 +136,10 @@ class SuperGrid:
                     raise RuntimeError(session.connection_error or
                                        "SuperGrid log stream ended before the control session closed")
                 time.sleep(1)
+            # A signed closing snapshot or approval reply lets ServerApp return
+            # naturally. Stopping here races that reply and records "stopped"
+            # even when the mission succeeded.
+            remote_closed = True
         except Exception as exc:
             self.fail(mission_id, str(exc))
         finally:
@@ -145,7 +150,7 @@ class SuperGrid:
                 except subprocess.TimeoutExpired:
                     logs.kill()
                     logs.wait()
-            if session.run_id:
+            if session.run_id and not remote_closed:
                 try:
                     self._cli(cli, ["stop", session.run_id, "supergrid"], timeout=30)
                 except Exception:

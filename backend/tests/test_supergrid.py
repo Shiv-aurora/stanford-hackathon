@@ -297,3 +297,31 @@ def test_successful_handshake_clears_old_connection_error(bridge):
     session.connection_error = 'SuperGrid callback failed: HTTP 403'
     assert signed(client, signer, 'session', {}).status_code == 200
     assert session.connection_error is None
+
+
+@pytest.mark.parametrize('closed_normally', [True, False])
+def test_launcher_only_stops_abnormal_runs(monkeypatch, closed_normally):
+    store.reset()
+    service = SuperGrid()
+    mission = store.add_mission(Mission(id='m-close', prompt='synthetic demo'))
+    session = service.sessions[mission.id] = Session(mission.id)
+    calls = []
+    def cli(binary, args, timeout=120):
+        calls.append(args)
+        if args[0] == 'run':
+            session.closed = closed_normally
+        return {'success': True, 'run-id': '456'}
+    monkeypatch.setattr(service, '_cli', cli)
+    proc = Mock(stdout=io.StringIO(''))
+    # Closed runs still have a live log stream while the final reply is in flight.
+    # Abnormal runs end their log stream without any signed closure.
+    proc.poll.return_value = None if closed_normally else 0
+    monkeypatch.setattr('services.supergrid.subprocess.Popen', lambda *a, **k: proc)
+    service._launch(mission.id, '@qxh2001/security', 'https://bridge.example', 'flwr')
+    stops = [args for args in calls if args[0] == 'stop']
+    assert stops == ([] if closed_normally else [['stop', '456', 'supergrid']])
+    if closed_normally:
+        proc.terminate.assert_called_once()  # Local log viewer only.
+        assert mission.error is None
+    else:
+        assert mission.status == MissionStatus.FAILED
