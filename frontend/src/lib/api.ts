@@ -41,6 +41,7 @@ export interface BackendWorker {
 export interface BackendChatMessage {
   id: string;
   role: 'user' | 'coordinator';
+  kind?: 'text' | 'security';
   text: string | null;
   pending: boolean;
   routed_to: string[];
@@ -246,6 +247,7 @@ function emptyView(prompt: string, error: string | null, lab: LabId): MissionVie
     transcript: null,
     models: [],
     model: '',
+    durationMs: null,
   };
 }
 
@@ -698,6 +700,7 @@ export class ApiMission implements MissionActions {
         (c): ChatMessage => ({
           id: c.id,
           role: c.role,
+          kind: c.kind ?? 'text',
           text: c.text,
           pending: c.pending,
           routedTo: c.routed_to.map((key) => ({ key, star: starOf.get(key) ?? key })),
@@ -716,6 +719,9 @@ export class ApiMission implements MissionActions {
       transcript: this.watched ? { key: this.watched, entries: this.transcript.map(toEntry) } : null,
       models: this.models,
       model: m.model ?? '',
+      durationMs: finished
+        ? Math.max(0, Math.max(...this.workers.map((w) => (w.finished_at ?? 0) * 1000)) - this.createdAt) || null
+        : null,
     };
   }
 }

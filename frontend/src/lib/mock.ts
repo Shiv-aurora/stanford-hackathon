@@ -353,10 +353,11 @@ export class MockMission implements MissionActions {
     const starOf = new Map([...rows, ...allWorkers].map((w) => [w.key, w.star]));
     const routed = (keys: string[]) => keys.map((key) => ({ key, star: starOf.get(key) ?? key }));
     const chat: ChatMessage[] = [
-      { id: 'c-prompt', role: 'user', text: this.prompt, pending: false, routedTo: [], categories: [] },
+      { id: 'c-prompt', role: 'user', kind: 'text', text: this.prompt, pending: false, routedTo: [], categories: [] },
       {
         id: 'c-synthesis',
         role: 'coordinator',
+        kind: 'text',
         text: complete ? result : null,
         pending: !complete,
         routedTo: routed(rows.map((w) => w.key)),
@@ -371,10 +372,11 @@ export class MockMission implements MissionActions {
         : `No single compartment matched, so all ${f.asked.length} workers were asked.`;
       const lines = f.asked.map((key) => `- ${this.fixtureOf(key)?.role ?? key}: ${this.replyOf(key, f.question)}`);
       chat.push(
-        { id: f.id + '-q', role: 'user', text: f.question, pending: false, routedTo: [], categories: [] },
+        { id: f.id + '-q', role: 'user', kind: 'text', text: f.question, pending: false, routedTo: [], categories: [] },
         {
           id: f.id + '-a',
           role: 'coordinator',
+          kind: 'text',
           text: done ? [head, ...lines].join('\n') : null,
           pending: !done,
           routedTo: routed(f.asked),
@@ -527,6 +529,7 @@ export class MockMission implements MissionActions {
       transcript: this.watched ? { key: this.watched, entries: this.transcriptOf(this.watched, allWorkers) } : null,
       models: [],
       model: '',
+      durationMs: null,
     };
   }
 }

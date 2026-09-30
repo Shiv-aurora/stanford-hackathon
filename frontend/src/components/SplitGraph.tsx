@@ -62,6 +62,8 @@ export function SplitGraph({ view, onOpenWorker }: { view: MissionView; onOpenWo
   const focusFrags = new Set(workers.filter((w) => focus.has(w.key)).flatMap(fragsOf));
   const dim = focus.size > 0;
 
+  // Fragments a compromised worker held: where the injection was.
+  const poisoned = new Set(workers.filter((w) => w.tainted).flatMap(fragsOf));
   const shared = frags.filter((f) => !f.secret).length;
   const secret = frags.length - shared;
   const maxShare = workers.reduce((m, w) => Math.max(m, w.share), 0);
@@ -162,7 +164,8 @@ export function SplitGraph({ view, onOpenWorker }: { view: MissionView; onOpenWo
           {frags.map((f) => {
             const y = fragY.get(f.id)!;
             const on = focusFrags.has(f.id);
-            const text = f.label.length > 20 ? f.label.slice(0, 19) + '…' : f.label;
+            const bad = poisoned.has(f.id);
+            const text = (bad ? '⚠ ' : '') + (f.label.length > 18 ? f.label.slice(0, 17) + '…' : f.label);
             return (
               <g key={'f' + f.id} opacity={dim && !on ? 0.4 : 1}>
                 <title>{f.secret ? `${f.label}: never sent to any worker` : f.label}</title>
@@ -172,8 +175,8 @@ export function SplitGraph({ view, onOpenWorker }: { view: MissionView; onOpenWo
                   width={120}
                   height={22}
                   rx={6}
-                  fill={f.secret ? 'transparent' : on ? 'rgba(96,165,250,0.14)' : '#17171A'}
-                  stroke={f.secret ? '#3A3A3F' : on ? 'rgba(147,197,253,0.6)' : '#2A2A30'}
+                  fill={bad ? 'rgba(239,68,68,0.16)' : f.secret ? 'transparent' : on ? 'rgba(96,165,250,0.14)' : '#17171A'}
+                  stroke={bad ? '#EF4444' : f.secret ? '#3A3A3F' : on ? 'rgba(147,197,253,0.6)' : '#2A2A30'}
                   strokeDasharray={f.secret ? '3 3' : undefined}
                 />
                 {f.secret && (
@@ -182,7 +185,7 @@ export function SplitGraph({ view, onOpenWorker }: { view: MissionView; onOpenWo
                     <path d="M8 11V7a4 4 0 0 1 8 0v4" />
                   </svg>
                 )}
-                <text x={X_FRAG + (f.secret ? 20 : 8)} y={y + 3.5} fontSize={10} fontFamily={MONO} fill={f.secret ? '#6B6B70' : '#D4D4D4'}>
+                <text x={X_FRAG + (f.secret ? 20 : 8)} y={y + 3.5} fontSize={10} fontFamily={MONO} fill={bad ? '#FCA5A5' : f.secret ? '#6B6B70' : '#D4D4D4'}>
                   {text}
                 </text>
               </g>

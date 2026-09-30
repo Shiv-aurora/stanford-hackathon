@@ -71,6 +71,8 @@ export interface WorkerView {
 export interface ChatMessage {
   id: string;
   role: 'user' | 'coordinator';
+  /** 'security': a blocked attack (text = the injected instruction; routedTo = [compromised, replacement]). */
+  kind: 'text' | 'security';
   /** null while the coordinator is still working on it. */
   text: string | null;
   pending: boolean;
@@ -142,6 +144,8 @@ export interface MissionView {
   chat: ChatMessage[];
   /** Why a follow-up can't be sent right now; null when it can. */
   chatBlocked: string | null;
+  /** Time from dispatch to the assembled answer, once complete. */
+  durationMs: number | null;
   /** Models the workers can run on (api mode); empty in mock mode. */
   models: { id: string; label: string }[];
   /** Model this chat's workers use ('' = default). */

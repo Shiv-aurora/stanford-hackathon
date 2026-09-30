@@ -334,7 +334,7 @@ export function ChatHome({
                 {banner.text}
               </div>
             )}
-            <CoordinatorChat chat={view.chat} blocked={view.chatBlocked} onSend={actions.sendMessage} onOpenWorker={onOpenConversation} />
+            <CoordinatorChat view={view} onSend={actions.sendMessage} onOpenWorker={onOpenConversation} />
           </section>
 
           <section aria-label="Under the hood" style={{ ...card, width: 560, flexShrink: 0, padding: '0 16px 16px' }}>

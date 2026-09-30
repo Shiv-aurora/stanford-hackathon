@@ -434,7 +434,7 @@ export function Overview({
               />
             </div>
             {panel === 'chat' ? (
-              <CoordinatorChat chat={view.chat} blocked={view.chatBlocked} onSend={actions.sendMessage} onOpenWorker={onOpenConversation} />
+              <CoordinatorChat view={view} onSend={actions.sendMessage} onOpenWorker={onOpenConversation} />
             ) : (
             <>
             <div

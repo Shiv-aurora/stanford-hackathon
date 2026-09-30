@@ -468,6 +468,15 @@ def _quarantine(worker_id: str) -> AttackResponse:
              note=f"Replacement for {worker.id}" + (" · injected text removed" if stripped else ""))
         store.workers[worker.id] = quarantined
         store.add_worker(replacement)
+        # Tell the operator in the chat: right after the prompt while the first
+        # answer is still being built, otherwise at the end.
+        alert = {"id": f"c-{uuid.uuid4().hex[:8]}", "role": "coordinator", "kind": "security", "text": injected,
+                 "routed_to": [worker.id, replacement.id], "at": time.time()}
+        if len(mission.chat) <= 2 or mission.status != MissionStatus.COMPLETE:
+            at = next((i for i, m in enumerate(mission.chat) if m.get("kind") == "mission"), len(mission.chat))
+            mission.chat.insert(at, alert)
+        else:
+            mission.chat.append(alert)
         event = SecurityEvent(
             mission_id=mission.id,
             worker_id=worker.id,
@@ -537,7 +546,7 @@ def _chat_view(mission: Mission, msg: Dict[str, Any]) -> ChatMessage:
             routed_to=[w.id for w in workers], at=msg["at"],
         )
     return ChatMessage(
-        id=msg["id"], role=msg["role"], text=msg.get("text"), pending=bool(msg.get("pending")),
+        id=msg["id"], role=msg["role"], kind=msg.get("kind", "text"), text=msg.get("text"), pending=bool(msg.get("pending")),
         routed_to=list(msg.get("routed_to", [])), categories=list(msg.get("categories", [])), at=msg["at"],
     )
 

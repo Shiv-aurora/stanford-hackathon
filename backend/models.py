@@ -90,6 +90,8 @@ class ChatMessage(BaseModel):
 
     id: str
     role: Literal["user", "coordinator"]
+    # "text" | "security" (a blocked attack, shown as an alert)
+    kind: str = "text"
     text: Optional[str] = None
     pending: bool = False
     # Workers the coordinator asked (need-to-know), and the compartments matched.

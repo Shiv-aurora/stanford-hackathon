@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { LockIcon } from './Icons';
 import { MONO } from '../lib/theme';
-import type { ChatMessage, TranscriptEntry } from '../lib/types';
+import type { MissionView, TranscriptEntry } from '../lib/types';
+import { AnswerCards, ImpactStrip, Pipeline, SecurityAlert } from './ChatVisuals';
 
 // Coordinator chat and worker conversations. Built from the existing pieces:
 // the new-mission textarea, pill buttons, status pills and mono labels.
@@ -148,30 +149,37 @@ function ReplyCard({ who, lock, tone = 'plain', children }: { who: ReactNode; lo
 // Coordinator chat (Overview)
 
 export function CoordinatorChat({
-  chat,
-  blocked,
+  view,
   onSend,
   onOpenWorker,
 }: {
-  chat: ChatMessage[];
-  blocked: string | null;
+  view: MissionView;
   onSend: (text: string) => void;
   onOpenWorker: (key: string) => void;
 }) {
+  const chat = view.chat;
+  const blocked = view.chatBlocked;
+  const firstId = chat.find((m) => m.role === 'coordinator' && m.kind !== 'security')?.id;
+  const progress = view.workers.filter((w) => w.status === 'done').length;
   return (
     <>
-      <Thread count={chat.length + chat.filter((m) => m.pending).length}>
+      <Thread count={chat.length + chat.filter((m) => m.pending).length * 100 + progress}>
         {chat.length === 0 && <span style={meta}>Connecting to the coordinator…</span>}
         {chat.map((m, i) => {
           if (m.role === 'user') return <UserBubble key={m.id} who={i === 0 ? 'You · mission' : 'You'} text={m.text ?? ''} />;
-          const first = i === 1;
+          if (m.kind === 'security') return <SecurityAlert key={m.id} msg={m} view={view} onOpenWorker={onOpenWorker} />;
+          const first = m.id === firstId;
           const everyone = m.categories.length === 0;
           return (
-            <ReplyCard key={m.id} who={first ? 'Coordinator · synthesis' : 'Coordinator'} lock>
+            <ReplyCard key={m.id} who={first ? 'Coordinator · answer' : 'Coordinator'} lock>
+              {first && <Pipeline view={view} />}
               {m.pending ? (
-                <Pending label={first ? `Waiting for ${m.routedTo.length} workers to finish…` : `Waiting for ${m.routedTo.length} ${m.routedTo.length === 1 ? 'worker' : 'workers'} to answer…`} />
+                !first && <Pending label={`Waiting for ${m.routedTo.length} ${m.routedTo.length === 1 ? 'worker' : 'workers'} to answer…`} />
               ) : (
-                <span>{m.text}</span>
+                <>
+                  <AnswerCards text={m.text ?? ''} view={view} onOpenWorker={onOpenWorker} />
+                  {first && <ImpactStrip view={view} />}
+                </>
               )}
               {!first && m.routedTo.length > 0 && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
