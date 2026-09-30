@@ -1,8 +1,9 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { buildSky } from '../lib/sky';
-import { LogoIcon, LogIcon, FederationIcon, OverviewIcon, PlusIcon, ShieldIcon } from './Icons';
+import { ChatIcon, CheckIcon, LogoIcon, LogIcon, FederationIcon, OverviewIcon, PlusIcon, ShieldIcon } from './Icons';
+import type { Lab, LabId } from '../lib/labs';
 
-export type NavKey = 'overview' | 'compartments' | 'federation';
+export type NavKey = 'chat' | 'overview' | 'compartments' | 'federation';
 
 // The mockup is drawn on a 1440×900 board. Larger windows get the same layout
 // stretched; smaller windows get the whole board zoomed down so nothing clips.
@@ -85,24 +86,78 @@ const missionItem = (active: boolean): CSSProperties =>
     ? { height: 36, display: 'flex', alignItems: 'center', gap: 10, padding: '0 12px', borderRadius: 8, textDecoration: 'none', fontSize: 14, background: '#17171A', border: '1px solid #26262A' }
     : { height: 36, display: 'flex', alignItems: 'center', gap: 10, padding: '0 12px', borderRadius: 8, textDecoration: 'none', fontSize: 14, color: '#B4B4B4' };
 
+const avatar = (size: number, font: number): CSSProperties => ({
+  width: size,
+  height: size,
+  flexShrink: 0,
+  borderRadius: '50%',
+  background: '#3A3A3A',
+  color: '#ECECEC',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  fontSize: font,
+  fontWeight: 600,
+});
+
 const dot = (c: string): CSSProperties => ({ width: 7, height: 7, borderRadius: '50%', background: c });
+
+export interface SidebarMission {
+  id: string;
+  name: string;
+  dot: string;
+  current: boolean;
+}
 
 export function Sidebar({
   active,
-  missionName,
-  missionDot,
+  missions,
+  onSelectMission,
   onNewMission,
+  lab,
+  labs,
+  onSelectLab,
 }: {
   active: NavKey;
-  missionName: string;
-  missionDot: string;
+  missions: SidebarMission[];
+  onSelectMission: (id: string) => void;
   onNewMission: () => void;
+  lab: Lab;
+  /** Labs to switch between; empty when switching is unavailable (mock mode). */
+  labs: Lab[];
+  onSelectLab: (id: LabId) => void;
 }) {
+  const [menu, setMenu] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem('constellation.sidebar') === 'collapsed';
+    } catch {
+      return false;
+    }
+  });
+  const toggle = () =>
+    setCollapsed((c) => {
+      try {
+        localStorage.setItem('constellation.sidebar', c ? 'open' : 'collapsed');
+      } catch {
+        /* storage unavailable */
+      }
+      return !c;
+    });
+  const switchable = labs.length > 1;
+  const item = (on: boolean): CSSProperties => (collapsed ? { ...navItem(on), justifyContent: 'center', padding: 0 } : navItem(on));
+  const section = (label: string) =>
+    collapsed ? (
+      <div style={{ margin: '10px 12px 6px', borderTop: '1px solid #1C1C1F' }} />
+    ) : (
+      <div style={{ marginTop: 14, padding: '0 12px 6px', fontSize: 12, fontWeight: 500, color: '#8E8E8E' }}>{label}</div>
+    );
   return (
     <aside
       style={{
         position: 'relative',
-        width: 260,
+        width: collapsed ? 64 : 260,
+        transition: 'width 0.2s ease',
         flexShrink: 0,
         boxSizing: 'border-box',
         background: '#0E0E10',
@@ -113,87 +168,185 @@ export function Sidebar({
         gap: 4,
       }}
     >
-      <div style={{ height: 44, display: 'flex', alignItems: 'center', gap: 10, padding: '0 8px' }}>
-        <LogoIcon />
-        <span style={{ fontSize: 16, fontWeight: 600, letterSpacing: '-0.01em' }}>Constellation</span>
+      <div style={{ height: 44, display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : undefined, gap: 10, padding: collapsed ? 0 : '0 8px' }}>
+        {!collapsed && <LogoIcon />}
+        {!collapsed && <span style={{ fontSize: 16, fontWeight: 600, letterSpacing: '-0.01em', whiteSpace: 'nowrap' }}>Constellation</span>}
+        <button
+          type="button"
+          onClick={toggle}
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          style={{ marginLeft: collapsed ? 0 : 'auto', width: 32, height: 32, borderRadius: 8, border: 'none', background: 'transparent', color: '#8E8E8E', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" aria-hidden="true">
+            <rect x="3" y="4" width="18" height="16" rx="2.5" />
+            <path d="M9 4v16" />
+          </svg>
+        </button>
       </div>
       <button
         type="button"
         onClick={onNewMission}
+        title="New chat"
+        aria-label="New chat"
         style={{
           margin: '8px 0 10px',
           height: 44,
           display: 'flex',
           alignItems: 'center',
           gap: 10,
-          padding: '0 12px',
+          padding: collapsed ? 0 : '0 12px',
+          justifyContent: collapsed ? 'center' : undefined,
           borderRadius: 10,
           border: '1px solid #26262A',
           background: '#141417',
           color: '#ECECEC',
           fontSize: 14,
           fontWeight: 500,
+          whiteSpace: 'nowrap',
         }}
       >
         <PlusIcon />
-        New mission
+        {!collapsed && 'New chat'}
       </button>
       <nav aria-label="Main" style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-        <a href="#/" style={navItem(active === 'overview')} aria-current={active === 'overview' ? 'page' : undefined}>
-          <OverviewIcon />
-          Overview
-        </a>
-        <a href="#/compartments" style={navItem(active === 'compartments')} aria-current={active === 'compartments' ? 'page' : undefined}>
-          <ShieldIcon />
-          Compartments
-        </a>
-        <a href="#/federation" style={navItem(active === 'federation')} aria-current={active === 'federation' ? 'page' : undefined}>
-          <FederationIcon />
-          Federation
-        </a>
-        <a href="#/" style={navItem(false)}>
-          <LogIcon />
-          Security log
+        <a href="#/" title="Chat" style={item(active === 'chat')} aria-current={active === 'chat' ? 'page' : undefined}>
+          <ChatIcon />
+          {!collapsed && 'Chat'}
         </a>
       </nav>
-      <div style={{ marginTop: 20, padding: '0 12px 6px', fontSize: 12, fontWeight: 500, color: '#8E8E8E' }}>Missions</div>
-      <a href="#/" style={missionItem(active !== 'federation')}>
-        <span style={dot(missionDot)} />
-        {missionName}
-      </a>
-      <a href="#/" style={missionItem(false)}>
-        <span style={dot('#22C55E')} />
-        Halcyon
-      </a>
-      <a href="#/" style={missionItem(false)}>
-        <span style={dot('#525252')} />
-        Meridian
-      </a>
-      <a href="#/" style={missionItem(false)}>
-        <span style={dot('#525252')} />
-        Tessera
-      </a>
-      <div style={{ marginTop: 'auto', height: 52, display: 'flex', alignItems: 'center', gap: 10, padding: '0 8px', borderTop: '1px solid #1C1C1F' }}>
-        <span
+      {!collapsed && (
+        <>
+          {section('Chats')}
+          <div style={{ minHeight: 0, flexShrink: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {missions.map((m) => (
+              <a
+                key={m.id}
+                href="#/"
+                onClick={() => onSelectMission(m.id)}
+                aria-current={m.current ? 'true' : undefined}
+                style={{ ...missionItem(m.current && active !== 'federation'), flexShrink: 0 }}
+              >
+                <span style={dot(m.dot)} />
+                {m.name}
+              </a>
+            ))}
+          </div>
+        </>
+      )}
+      {/* Extra detail for the curious: kept at the bottom, out of the main flow. */}
+      <nav aria-label="Under the hood" style={{ marginTop: 'auto', paddingBottom: 8, display: 'flex', flexDirection: 'column', gap: 2 }}>
+        {section('Under the hood')}
+        <a href="#/overview" title="Swarm" style={item(active === 'overview')} aria-current={active === 'overview' ? 'page' : undefined}>
+          <OverviewIcon />
+          {!collapsed && 'Swarm'}
+        </a>
+        <a href="#/compartments" title="Compartments" style={item(active === 'compartments')} aria-current={active === 'compartments' ? 'page' : undefined}>
+          <ShieldIcon />
+          {!collapsed && 'Compartments'}
+        </a>
+        <a href="#/federation" title="Federation" style={item(active === 'federation')} aria-current={active === 'federation' ? 'page' : undefined}>
+          <FederationIcon />
+          {!collapsed && 'Federation'}
+        </a>
+        <a href="#/overview" title="Security log" style={item(false)}>
+          <LogIcon />
+          {!collapsed && 'Security log'}
+        </a>
+      </nav>
+      <div style={{ position: 'relative', borderTop: '1px solid #1C1C1F' }}>
+        {menu && switchable && (
+          <div
+            role="menu"
+            aria-label="Switch lab"
+            style={{
+              position: 'absolute',
+              left: 0,
+              right: collapsed ? undefined : 0,
+              width: collapsed ? 220 : undefined,
+              zIndex: 20,
+              bottom: 'calc(100% + 6px)',
+              padding: 6,
+              borderRadius: 10,
+              border: '1px solid #26262A',
+              background: '#141417',
+              boxShadow: '0 12px 32px rgba(0,0,0,0.5)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 2,
+              animation: 'crise 0.15s ease-out',
+            }}
+          >
+            <div style={{ padding: '4px 8px 6px', fontSize: 12, fontWeight: 500, color: '#8E8E8E' }}>Labs</div>
+            {labs.map((l) => (
+              <button
+                key={l.id}
+                type="button"
+                role="menuitemradio"
+                aria-checked={l.id === lab.id}
+                onClick={() => {
+                  setMenu(false);
+                  onSelectLab(l.id);
+                }}
+                style={{
+                  height: 40,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  padding: '0 8px',
+                  borderRadius: 8,
+                  border: 'none',
+                  background: l.id === lab.id ? '#1F1F23' : 'transparent',
+                  color: '#ECECEC',
+                  fontSize: 14,
+                  textAlign: 'left',
+                }}
+              >
+                <span style={avatar(24, 10)}>{l.initials}</span>
+                <span style={{ flexGrow: 1 }}>{l.name}</span>
+                {l.id === lab.id && <CheckIcon size={13} stroke="#86EFAC" />}
+              </button>
+            ))}
+          </div>
+        )}
+        <button
+          type="button"
+          disabled={!switchable}
+          aria-label={switchable ? `${lab.name}, switch lab` : undefined}
+          aria-haspopup={switchable ? 'menu' : undefined}
+          aria-expanded={switchable ? menu : undefined}
+          onClick={() => setMenu((v) => !v)}
+          onBlur={(e) => {
+            if (!e.currentTarget.parentElement?.contains(e.relatedTarget as Node | null)) setMenu(false);
+          }}
           style={{
-            width: 30,
-            height: 30,
-            borderRadius: '50%',
-            background: '#3A3A3A',
-            color: '#ECECEC',
+            width: '100%',
+            height: 52,
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: 12,
-            fontWeight: 600,
+            justifyContent: collapsed ? 'center' : undefined,
+            gap: 10,
+            padding: collapsed ? 0 : '0 8px',
+            border: 'none',
+            background: 'transparent',
+            color: '#ECECEC',
+            textAlign: 'left',
+            cursor: switchable ? 'pointer' : 'default',
           }}
         >
-          AL
-        </span>
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <span style={{ fontSize: 14, fontWeight: 500 }}>AI Lab</span>
-          <span style={{ fontSize: 12, color: '#8E8E8E' }}>Coordinator admin</span>
-        </div>
+          <span style={avatar(30, 12)}>{lab.initials}</span>
+          {!collapsed && (
+            <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
+              <span style={{ fontSize: 14, fontWeight: 500, whiteSpace: 'nowrap' }}>{lab.name}</span>
+              <span style={{ fontSize: 12, color: '#8E8E8E', whiteSpace: 'nowrap' }}>Coordinator admin</span>
+            </div>
+          )}
+          {switchable && !collapsed && (
+            <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="#8E8E8E" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M7 15l5 5 5-5M7 9l5-5 5 5" />
+            </svg>
+          )}
+        </button>
       </div>
     </aside>
   );

@@ -38,6 +38,8 @@ def run_task(msg: Message, context: Context) -> Message:
         "context": list(task["context"]),
         "network_identity": task["network_identity"],
         "fail": bool(task["fail"]),
+        "message": str(task["message"]) if "message" in task else "",
+        "model": str(task["model"]) if "model" in task else "",
     }
     output, source = execute_task(payload)
     reply = RecordDict(
@@ -112,6 +114,7 @@ class GridTransport:
         self._grid = grid
         self._nodes = node_ids
         self._used: set[int] = set()
+        self._node_of: dict[str, int] = {}
         self._timeout = timeout
         self._by_msg: dict[str, tuple[str, int, float]] = {}
 
@@ -123,11 +126,17 @@ class GridTransport:
 
     def submit(self, payload: dict[str, Any], avoid: set[str]) -> str:
         # Never reuse a node during this run, even after its worker completes.
-        candidates = [n for n in self._nodes if n not in self._used and str(n) not in avoid]
+        assigned = self._node_of.get(payload["id"])
+        if assigned is not None and str(assigned) in avoid:
+            raise RuntimeError("Assigned SuperNode is unavailable for this worker")
+        if any(entry[0] == payload["id"] for entry in self._by_msg.values()):
+            raise RuntimeError("Worker already has a request in flight")
+        candidates = [assigned] if assigned is not None else [n for n in self._nodes if n not in self._used and str(n) not in avoid]
         if not candidates:
             raise RuntimeError("No unused SuperNode available for this worker")
         node = candidates[0]
         self._used.add(node)
+        self._node_of[payload["id"]] = node
         msg = Message(RecordDict({"task": ConfigRecord(payload)}), dst_node_id=node,
                       message_type="query", ttl=self._timeout)
         (msg_id,) = self._grid.push_messages([msg])

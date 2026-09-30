@@ -12,7 +12,16 @@ import re
 
 from pydantic import BaseModel, Field
 
-__all__ = ["WorkerSpec", "DEMO_MISSION", "decompose_mission", "extract_fragments"]
+__all__ = [
+    "WorkerSpec",
+    "DEMO_MISSION",
+    "DEFENSE_DEMO_MISSION",
+    "BIOTECH_DEMO_MISSION",
+    "DOMAINS",
+    "decompose_mission",
+    "extract_fragments",
+    "route_question",
+]
 
 
 class WorkerSpec(BaseModel):
@@ -86,6 +95,105 @@ _DEMO_WORKERS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("reviewer", "Stress-test the reported results for statistical and methodological weaknesses.", ("internal_results", "evaluation_protocol")),
 )
 
+# --- Defense lab -------------------------------------------------------------
+
+DEFENSE_DEMO_MISSION = (
+    "Confidential: Project Bastion is our program to protect a forward operating "
+    "base from small drone attacks. "
+    "The threat assessment expects adversary swarms of up to 40 low-cost drones "
+    "approaching at night. "
+    "The sensor suite combines two S-band radars, passive RF detection and EO/IR "
+    "cameras. "
+    "Effectors include RF jammers, interceptor drones and a 10 kW laser prototype. "
+    "The base perimeter is 3.2 km with two hills that mask low-altitude "
+    "approaches from the east. "
+    "Rules of engagement require human authorization before any kinetic "
+    "engagement near the civilian airfield. "
+    "Procurement is capped at 18 million dollars over two years, including "
+    "maintenance and spares. "
+    "Field trials last month reached a 91% detection rate but missed drones "
+    "flying below 30 meters. "
+    "Intelligence reporting from allied liaison sources suggests the adversary is "
+    "fielding fiber-optic guided drones."
+)
+
+_DEFENSE_CATEGORIES: dict[str, tuple[str, ...]] = {
+    "mission_objective": ("confidential", "project", "program", "objective"),
+    "threat_assessment": ("threat", "adversary", "swarm", "drone", "attack profile"),
+    "sensor_suite": ("sensor", "radar", "rf detection", "eo/ir", "camera"),
+    "effectors": ("effector", "jammer", "interceptor", "laser", "kinetic"),
+    "site_layout": ("base", "perimeter", "hill", "terrain", "approaches"),
+    "rules_of_engagement": ("rules of engagement", "authorization", "engagement", "civilian", "legal"),
+    "logistics_budget": ("procurement", "budget", "million", "maintenance", "spares"),
+    "test_results": ("trial", "detection rate", "%", "missed"),
+    "intel_sources": ("intelligence", "reporting", "liaison", "sources"),
+}
+
+# The objective and intelligence sources never leave the coordinator.
+_DEFENSE_WORKERS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("threat_analyst", "Characterise the expected drone threat and rank the most likely attack profiles.", ("threat_assessment",)),
+    ("sensor_engineer", "Assess sensor coverage gaps and propose placement or tuning changes.", ("sensor_suite",)),
+    ("effects_planner", "Compare the listed effectors on cost per engagement and collateral risk.", ("effectors",)),
+    ("site_planner", "Map terrain-driven blind spots and where sensors should be sited.", ("site_layout", "sensor_suite")),
+    ("legal_review", "Check the engagement constraints for legal and safety conflicts.", ("rules_of_engagement",)),
+    ("logistics", "Estimate lifecycle cost and sustainment risk within the stated budget.", ("logistics_budget",)),
+    ("test_evaluator", "Explain the trial shortfalls and design the next test campaign.", ("test_results", "sensor_suite")),
+    ("red_team", "Red-team the defence: how would an adversary defeat these effectors?", ("threat_assessment", "effectors")),
+)
+
+# --- Biotech lab ------------------------------------------------------------
+
+BIOTECH_DEMO_MISSION = (
+    "Confidential: Project Meridian is our program to develop an oral KRAS G12C "
+    "inhibitor for lung cancer. "
+    "The target protein is mutant KRAS and we bind a cryptic pocket near switch II. "
+    "Our lead series has 14 candidate molecules derived from a covalent "
+    "acrylamide scaffold. "
+    "Biochemical assays show an IC50 of 12 nM with 40-fold selectivity over "
+    "wild-type. "
+    "In mouse xenograft studies tumours shrank by 60% but two animals showed "
+    "liver toxicity. "
+    "Manufacturing currently yields 35% over nine steps and the process has not "
+    "been scaled. "
+    "We plan an IND filing with the FDA in Q3 next year. "
+    "Our patent application covers the scaffold but a competitor's prior art may "
+    "overlap. "
+    "Relevant published literature includes sotorasib and adagrasib clinical papers."
+)
+
+_BIOTECH_CATEGORIES: dict[str, tuple[str, ...]] = {
+    "program_goal": ("confidential", "project", "program", "develop"),
+    "target_biology": ("target", "protein", "mutant", "bind", "pocket"),
+    "compound_series": ("lead series", "candidate", "molecule", "scaffold", "covalent"),
+    "assay_data": ("assay", "ic50", "nm", "selectivity"),
+    "preclinical_results": ("mouse", "xenograft", "animal", "toxicity", "in vivo"),
+    "manufacturing": ("manufacturing", "yield", "steps", "process", "scaled"),
+    "regulatory_plan": ("ind filing", "fda", "regulatory", "filing"),
+    "patent_ip": ("patent", "prior art", "competitor", "freedom-to-operate"),
+    "published_literature": ("published", "literature", "papers", "clinical"),
+}
+
+# The program goal never leaves the coordinator.
+_BIOTECH_WORKERS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("literature", "Summarise what the published inhibitors teach about efficacy and resistance.", ("published_literature",)),
+    ("target_biologist", "Assess the binding hypothesis and the risks of targeting this pocket.", ("target_biology",)),
+    ("medicinal_chemist", "Propose modifications to improve the lead series' potency and stability.", ("compound_series", "target_biology")),
+    ("assay_analyst", "Check the assay results for artefacts and suggest confirmatory assays.", ("assay_data",)),
+    ("toxicologist", "Interpret the in vivo findings and flag safety signals to investigate.", ("preclinical_results",)),
+    ("process_engineer", "Identify the route changes most likely to improve yield at scale.", ("manufacturing",)),
+    ("regulatory", "List what the planned filing still needs from the safety package.", ("regulatory_plan", "preclinical_results")),
+    ("ip_counsel", "Assess freedom-to-operate risk for the lead series.", ("patent_ip", "compound_series")),
+)
+
+# domain -> (categories in priority order, fallback category, workers).
+# The fallback category is never granted to a worker, so anything the
+# classifier cannot place stays with the trusted coordinator.
+DOMAINS: dict[str, tuple[dict[str, tuple[str, ...]], str, tuple[tuple[str, str, tuple[str, ...]], ...]]] = {
+    "ai": (_CATEGORIES, _FALLBACK_CATEGORY, _DEMO_WORKERS),
+    "defense": (_DEFENSE_CATEGORIES, "mission_objective", _DEFENSE_WORKERS),
+    "biotech": (_BIOTECH_CATEGORIES, "program_goal", _BIOTECH_WORKERS),
+}
+
 _AI_RESEARCH_KEYWORDS = (
     "model", "training", "transformer", "llm", "neural", "optimizer",
     "benchmark", "dataset", "gpu", "architecture", "fine-tun", "inference",
@@ -110,22 +218,39 @@ def _sentences(text: str) -> list[str]:
     return [p.strip() for p in parts if p.strip()]
 
 
-def _classify(sentence: str) -> str:
+def _classify(sentence: str, domain: str = "ai") -> str:
+    categories, fallback, _ = DOMAINS[domain]
     lowered = sentence.lower()
-    best, best_hits = _FALLBACK_CATEGORY, 0
-    for category, keywords in _CATEGORIES.items():
+    best, best_hits = fallback, 0
+    for category, keywords in categories.items():
         hits = sum(1 for kw in keywords if kw in lowered)
         if hits > best_hits:
             best, best_hits = category, hits
     return best
 
 
-def extract_fragments(prompt: str) -> dict[str, str]:
-    """Split a mission into context fragments, one per category."""
-    buckets: dict[str, list[str]] = {c: [] for c in _CATEGORIES}
+def extract_fragments(prompt: str, domain: str = "ai") -> dict[str, str]:
+    """Split a mission into context fragments, one per category of `domain`."""
+    buckets: dict[str, list[str]] = {c: [] for c in DOMAINS[domain][0]}
     for sentence in _sentences(prompt):
-        buckets[_classify(sentence)].append(sentence)
+        buckets[_classify(sentence, domain)].append(sentence)
     return {c: " ".join(s) for c, s in buckets.items()}
+
+
+def route_question(question: str, domain: str | None = None) -> set[str]:
+    """Context categories a follow-up question is about (need-to-know routing).
+
+    Uses the decomposition keywords, but unlike a mission sentence a question
+    may touch several compartments, so every category with a keyword hit
+    counts. The domain's fallback category is never returned: it is never
+    granted to a worker, so a question that only matches it has no
+    compartment to go to.
+    """
+    domain = domain if domain in DOMAINS else "ai"
+    categories, fallback, _ = DOMAINS[domain]
+    lowered = question.lower()
+    found = {c for c, keywords in categories.items() if any(kw in lowered for kw in keywords)}
+    return found - {fallback}
 
 
 def _is_ai_research(prompt: str) -> bool:
@@ -142,11 +267,11 @@ def _node(index: int) -> str:
     return f"node-{index:02d}"
 
 
-def _decompose_ai_research(prompt: str, mission_id: str | None) -> list[WorkerSpec]:
-    fragments = extract_fragments(prompt)
-    categories = list(_CATEGORIES)
+def _decompose_domain(prompt: str, mission_id: str | None, domain: str) -> list[WorkerSpec]:
+    fragments = extract_fragments(prompt, domain)
+    categories = list(DOMAINS[domain][0])
     specs = []
-    for i, (role, task, allowed) in enumerate(_DEMO_WORKERS, start=1):
+    for i, (role, task, allowed) in enumerate(DOMAINS[domain][2], start=1):
         specs.append(
             WorkerSpec(
                 id=_worker_id(mission_id, i, role),
@@ -189,14 +314,75 @@ def _decompose_generic(prompt: str, mission_id: str | None) -> list[WorkerSpec]:
     return specs
 
 
-def decompose_mission(prompt: str, mission_id: str | None = None) -> list[WorkerSpec]:
+_CODE_START = re.compile(r"^(async\s+def|def|class|function|export|public|private|func|fn|const\s+\w+\s*=\s*(async\s*)?\()\b|^(const|let)\s+\w+\s*=\s*(async\s+)?\(")
+_CODE_NAME = re.compile(r"(?:def|class|function|func|fn)\s+([A-Za-z_][\w]*)|(?:const|let)\s+([A-Za-z_][\w]*)")
+_MAX_CODE_WORKERS = 8
+
+
+def _split_code(prompt: str) -> tuple[str, list[tuple[str, str]]]:
+    """(request text, [(label, chunk)]) — one chunk per top-level definition."""
+    fence = re.search(r"```[\w-]*\n(.*?)```", prompt, re.S)
+    code = fence.group(1) if fence else prompt
+    request = (prompt[: fence.start()] + prompt[fence.end():]).strip() if fence else ""
+    chunks: list[list[str]] = [[]]
+    for line in code.splitlines():
+        if _CODE_START.match(line) and any(l.strip() for l in chunks[-1]):
+            chunks.append([])
+        chunks[-1].append(line)
+    blocks = ["\n".join(c).strip("\n") for c in chunks if any(l.strip() for l in c)]
+    # Keep the imports/header with the first definition; cap the worker count.
+    if len(blocks) > 1 and not _CODE_START.match(blocks[0].lstrip()):
+        blocks[1] = blocks[0] + "\n\n" + blocks[1]
+        blocks = blocks[1:]
+    while len(blocks) > _MAX_CODE_WORKERS:
+        blocks[-2] = blocks[-2] + "\n\n" + blocks.pop()
+    out = []
+    for i, block in enumerate(blocks, start=1):
+        m = _CODE_NAME.search(block)
+        name = (m.group(1) or m.group(2)) if m else f"block_{i}"
+        out.append((f"{name}()" if not block.lstrip().startswith("class") else name, block))
+    return request, out
+
+
+def _decompose_code(prompt: str, mission_id: str | None) -> list[WorkerSpec]:
+    """Code mode: each worker reviews one definition and never sees the rest of the codebase."""
+    _, chunks = _split_code(prompt)
+    labels = [label for label, _ in chunks]
+    total = sum(len(c) for _, c in chunks) or 1
+    specs = []
+    for i, (label, chunk) in enumerate(chunks, start=1):
+        specs.append(
+            WorkerSpec(
+                id=_worker_id(mission_id, i, "code"),
+                role=f"review {label}",
+                task=f"Review {label} for bugs, security issues and risky edge cases. Report findings for this code only.",
+                allowed_context=[label],
+                blocked_context=[l for l in labels if l != label] + ["request"],
+                context_exposure=round(min(0.99, max(0.01, len(chunk) / total)), 2),
+                network_identity=_node(i),
+                context={label: chunk},
+            )
+        )
+    return specs
+
+
+def decompose_mission(
+    prompt: str, mission_id: str | None = None, domain: str | None = None
+) -> list[WorkerSpec]:
     """Break a mission into narrow, compartmentalised worker specs.
 
-    AI-research prompts get the 8-worker demo decomposition; anything else gets
-    a small generic split. No worker receives the complete mission.
+    `domain` is the lab the mission belongs to. Defense and biotech missions
+    always get their lab's 8-worker decomposition. AI-lab (or unspecified)
+    prompts get the AI-research decomposition when they look like AI
+    research, and a small generic split otherwise. No worker receives the
+    complete mission.
     """
     if not prompt or not prompt.strip():
         raise ValueError("mission prompt must not be empty")
+    if domain == "code":
+        return _decompose_code(prompt, mission_id)
+    if domain in ("defense", "biotech"):
+        return _decompose_domain(prompt, mission_id, domain)
     if _is_ai_research(prompt):
-        return _decompose_ai_research(prompt, mission_id)
+        return _decompose_domain(prompt, mission_id, "ai")
     return _decompose_generic(prompt, mission_id)

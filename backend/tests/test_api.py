@@ -35,6 +35,31 @@ def test_create_and_read_mission(client):
     assert fetched["result"]
 
 
+def test_list_missions(client):
+    assert client.get("/missions").json() == []
+    first, second = _create(client), _create(client)
+    listed = client.get("/missions").json()
+    assert [m["id"] for m in listed] == [first["id"], second["id"]]
+    assert all(m["created_at"] for m in listed)
+
+
+def test_lab_missions(client, monkeypatch):
+    # conftest forces the demo_seed stand-ins; use the real decomposer for lab splits.
+    from services import decomposer
+
+    monkeypatch.setattr(api_main, "decompose_mission", decomposer.decompose_mission)
+    ai = _create(client)
+    resp = client.post("/mission", json={"prompt": "Protect the base from drones.", "lab": "defense"})
+    assert resp.status_code == 200
+    defense = resp.json()
+    assert defense["lab"] == "defense" and ai["lab"] == "ai"
+    roles = [w["role"] for w in client.get(f"/mission/{defense['id']}/workers").json()]
+    assert roles[0] == "threat_analyst" and len(roles) == 8
+    assert [m["id"] for m in client.get("/missions?lab=defense").json()] == [defense["id"]]
+    assert [m["id"] for m in client.get("/missions?lab=ai").json()] == [ai["id"]]
+    assert client.post("/mission", json={"prompt": "x", "lab": "navy"}).status_code == 422
+
+
 def test_empty_prompt_rejected(client):
     assert client.post("/mission", json={"prompt": ""}).status_code == 422
 
@@ -79,6 +104,8 @@ def test_attack_quarantines_and_replaces(client):
     assert rep["task"] == bad["task"]
     assert rep["allowed_context"] == bad["allowed_context"]
     assert rep["network_identity"] != bad["network_identity"]
+    assert rep["status"] == "queued"
+    assert rep["started_at"] is None and rep["finished_at"] is None
     assert body["event"]["worker_id"] == target
     assert "prompt injection" in body["event"]["detail"].lower()
 

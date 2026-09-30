@@ -1,6 +1,7 @@
 import io
 import json
 import threading
+import time
 
 import pytest
 
@@ -17,8 +18,10 @@ SPECS = [
 
 @pytest.fixture(autouse=True)
 def no_model(monkeypatch):
-    for k in ("FLWR_MODEL_API_ENDPOINT", "FLWR_MODEL_ID", "FLWR_MODEL_API_KEY", "CONSTELLATION_RUNTIME"):
-        monkeypatch.delenv(k, raising=False)
+    # Blank (not delete) so Ray workers inherit "no model" instead of reading backend/.env.
+    for k in ("FLWR_MODEL_API_ENDPOINT", "FLWR_MODEL_ID", "FLWR_MODEL_API_KEY"):
+        monkeypatch.setenv(k, "")
+    monkeypatch.delenv("CONSTELLATION_RUNTIME", raising=False)
 
 
 def collect(**kwargs):
@@ -57,6 +60,24 @@ def test_flower_path_runs_each_worker_on_its_own_node():
     # Deterministic: same output as the local path.
     local = run_workers(SPECS, use_flower=False)
     assert [r.output for r in results] == [r.output for r in local]
+
+
+@pytest.mark.skipif(not rt.flower_available(), reason="flwr[simulation] not installed")
+def test_overlapping_flower_runs_do_not_deadlock():
+    # A second run while a simulation holds Ray must not hang; it runs locally.
+    results = {}
+
+    def run(name, specs):
+        results[name] = run_workers(specs, use_flower=True)
+
+    first = threading.Thread(target=run, args=("mission", SPECS[:3]))
+    first.start()
+    time.sleep(1)
+    run("replacement", [{**SPECS[0], "id": "w1-r1"}])
+    first.join(timeout=120)
+    assert not first.is_alive()
+    assert [r.runtime for r in results["mission"]] == ["flower"] * 3
+    assert all(r.status == COMPLETE for r in results["mission"] + results["replacement"])
 
 
 def test_local_fallback_forced():

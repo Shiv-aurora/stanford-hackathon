@@ -59,7 +59,7 @@ def test_unsigned_and_wrong_key_cannot_read_mission(bridge):
     assert client.post(path, json={}).status_code == 403
     wrong = SignedBridge('https://bridge.example', mission.id, '123')
     assert signed(client, wrong, 'session', {}).status_code == 403
-    assert signed(client, signer, 'session', {}).json() == {'prompt': 'PRIVATE MISSION'}
+    assert signed(client, signer, 'session', {}).json() == {'prompt': 'PRIVATE MISSION', 'lab': 'ai', 'mode': 'chat', 'model': '', 'chat': []}
 
 
 def test_replayed_signed_request_rejected(bridge):
@@ -170,13 +170,17 @@ def test_only_https_bridge_allowed():
 
 
 @pytest.mark.parametrize("native", [False, True])
-def test_entire_remote_coordinator_lifecycle(bridge, monkeypatch, native):
+@pytest.mark.parametrize("lab", ["ai", "defense"])
+def test_entire_remote_coordinator_lifecycle(bridge, monkeypatch, native, lab):
     """Signed HTTP bridge + coordinator + Flower messages; simulated grid only."""
     from services.remote_coordinator import run_remote
     from services.flower_app import run_task
     from flwr.supercore.task_identity import TaskIdentity
     from backend.tests.test_grid_transport import Grid
     client, mission, _, session = bridge
+    mission.lab = lab
+    mission.model = 'test-model'
+    monkeypatch.setattr(main, 'get_swarm', Mock(side_effect=AssertionError('No local cloud follow-ups')))
     mission.prompt = 'Confidential research: our model architecture uses transformer experts. We train on a private dataset.'
     for field, value in (('_run_id', 123), ('_task_id', 1), ('_node_id', 1)):
         monkeypatch.setattr(TaskIdentity, field, value)
@@ -234,7 +238,30 @@ def test_entire_remote_coordinator_lifecycle(bridge, monkeypatch, native):
     assert not failures
     assert mission.status == MissionStatus.COMPLETE
     assert len(mission.worker_ids) == 8
+    original = {w.id: (w.node_id, w.output) for w in store.mission_workers(mission.id)}
+    if lab == 'defense':
+        assert 'legal_review' in {w.role for w in store.mission_workers(mission.id)}
     target = mission.worker_ids[0]
+    transcript = client.get(f'/workers/{target}/transcript').json()
+    assert [e['kind'] for e in transcript] == ['dispatch', 'reply']
+    assert set(transcript[0]['context']) == set(store.workers[target].allowed_context)
+    chat = client.get(f'/mission/{mission.id}/messages').json()
+    assert chat[0]['text'] == mission.prompt and chat[1]['text'] == mission.result
+    question = 'How does the radar address the threat?' if lab == 'defense' else 'What does the benchmark measure?'
+    posted = client.post(f'/mission/{mission.id}/messages', json={'text': question})
+    assert posted.status_code == 200, posted.text
+    routed = posted.json()[1]['routed_to']
+    assert 0 < len(routed) < 8
+    while client.get(f'/mission/{mission.id}/messages').json()[-1]['pending'] and time.monotonic() < deadline:
+        time.sleep(.02)
+    assert not client.get(f'/mission/{mission.id}/messages').json()[-1]['pending']
+    assert {w.id: (w.node_id, w.output) for w in store.mission_workers(mission.id)} == original
+    dm = client.post(f'/workers/{target}/messages', json={'text': 'Explain your finding.'})
+    assert dm.status_code == 200, dm.text
+    while store.workers[target].answering and time.monotonic() < deadline:
+        time.sleep(.02)
+    assert not store.workers[target].answering
+    assert store.workers[target].output == original[target][1]
     response = client.post(f'/workers/{target}/attack')
     assert response.status_code == 200, response.text
     while mission.status != MissionStatus.COMPLETE and time.monotonic() < deadline:
@@ -252,7 +279,10 @@ def test_entire_remote_coordinator_lifecycle(bridge, monkeypatch, native):
         task = dict(message.content['task'])
         assert mission.prompt not in str(task)
         assert 'bridge-url' not in task and 'public_key' not in task
+        assert task['model'] == 'test-model'
     assert client.post(f'/mission/{mission.id}/approve').status_code == 200
+    assert client.post(f'/mission/{mission.id}/messages', json={'text': 'closed'}).status_code == 409
+    assert client.post(f'/workers/{target}/messages', json={'text': 'closed'}).status_code == 409
     thread.join(3)
     assert not thread.is_alive()
     assert not failures

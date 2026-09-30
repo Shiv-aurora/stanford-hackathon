@@ -2,6 +2,8 @@
 // types; both the mock engine and the backend adapter (lib/api.ts) produce them.
 
 /** Visual worker state. Mirrors the mockup's status table plus backend-only states. */
+import type { ChatMode, LabId } from './labs';
+
 export type UiStatus =
   | 'queued' // backend: queued
   | 'run' // Running
@@ -11,6 +13,7 @@ export type UiStatus =
   | 'quar' // Quarantined
   | 'revoke' // Access revoked
   | 'prov' // Provisioning (replacement coming up)
+  | 'reply' // Answering a follow-up question (task already complete)
   | 'failed'; // backend: failed
 
 export type OutputState = 'pending' | 'accepted' | 'rejected';
@@ -60,6 +63,39 @@ export interface WorkerView {
   output: string | null;
   outputState: OutputState;
   tainted: boolean;
+  /** Answering a follow-up question from the coordinator or the operator. */
+  answering: boolean;
+}
+
+/** One turn of the coordinator chat. */
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'coordinator';
+  /** 'security': a blocked attack (text = the injected instruction; routedTo = [compromised, replacement]). */
+  kind: 'text' | 'security';
+  /** null while the coordinator is still working on it. */
+  text: string | null;
+  /** Per-worker findings behind a written answer ("- role: output" lines). */
+  details: string | null;
+  /** The coordinator is writing the final answer from the findings. */
+  writing: boolean;
+  pending: boolean;
+  /** Workers the coordinator asked (need-to-know). */
+  routedTo: { key: string; star: string }[];
+  /** Compartments the question matched; empty when every worker was asked. */
+  categories: string[];
+}
+
+/** One entry of a worker's conversation, as the trusted coordinator sees it. */
+export interface TranscriptEntry {
+  id: string;
+  kind: 'dispatch' | 'reply' | 'operator' | 'coordinator' | 'attack' | 'security' | 'error';
+  text: string;
+  /** Time in ms. */
+  at: number;
+  /** dispatch only: the exact context fragments sent. */
+  context: { label: string; text: string }[];
+  note: string | null;
 }
 
 /** Containment sequence. Phase 1–6 = Detect, Isolate, Quarantine, Revoke, Replace, Continue. */
@@ -73,6 +109,14 @@ export interface Incident {
   replacement: WorkerView | null;
   /** How many of the compromised worker's outputs were quarantined. */
   quarantinedOutputs: number;
+}
+
+/** One entry in the sidebar's mission list. */
+export interface MissionSummary {
+  id: string;
+  /** Code name, e.g. "Orion". */
+  name: string;
+  status: MissionStatus;
 }
 
 export interface MissionView {
@@ -101,6 +145,24 @@ export interface MissionView {
   approved: boolean;
   /** Set when the backend cannot be reached (api mode only). */
   error: string | null;
+  /** Every mission of the current lab for the sidebar, newest first (includes this one). */
+  missions: MissionSummary[];
+  /** Lab whose missions are shown. */
+  lab: LabId;
+  /** Coordinator chat: the mission prompt, its synthesis, then follow-ups. */
+  chat: ChatMessage[];
+  /** Why a follow-up can't be sent right now; null when it can. */
+  chatBlocked: string | null;
+  /** Time from dispatch to the assembled answer, once complete. */
+  durationMs: number | null;
+  /** Models the workers can run on (api mode); empty in mock mode. */
+  models: { id: string; label: string }[];
+  /** Model this chat's workers use ('' = default). */
+  model: string;
+  /** Conversation of the worker being watched (see watchWorker). */
+  transcript: { key: string; entries: TranscriptEntry[] } | null;
+  /** Whether the lab can be switched (api mode only; mock replays the AI Lab demo). */
+  labSwitchable: boolean;
 }
 
 export interface MissionActions {
@@ -109,5 +171,17 @@ export interface MissionActions {
   /** Restart the demo with the same prompt. */
   reset(): void;
   approve(): void;
-  createMission(prompt: string): void;
+  createMission(prompt: string, mode?: ChatMode, model?: string): void;
+  /** Open an empty chat (the next message starts a new mission). */
+  newChat(): void;
+  /** Open another mission from the sidebar. */
+  selectMission(id: string): void;
+  /** Switch to another lab's missions. */
+  selectLab(id: LabId): void;
+  /** Ask the coordinator a follow-up; it routes it to the workers that need it. */
+  sendMessage(text: string): void;
+  /** Send one worker a follow-up; it answers from its own slice only. */
+  messageWorker(workerKey: string, text: string): void;
+  /** Keep this worker's conversation fresh in view.transcript (null to stop). */
+  watchWorker(workerKey: string | null): void;
 }

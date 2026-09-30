@@ -48,6 +48,28 @@ whole mission and must be isolated from untrusted worker operators. It refuses
 worker tasks and is excluded from all worker allocation and capacity counts.
 Worker nodes reject control requests. Signature, timestamp and replay checks
 still run on the API; no credentials or full mission are placed in run-config.
+Missions belong to a lab (`"lab": "ai" | "defense" | "biotech"` on
+`POST /mission`, default `ai`). Defense and biotech missions get their lab's
+8-worker decomposition (see `services/decomposer.py`); `GET /missions?lab=…`
+lists one lab's missions.
+
+Conversations (the trusted coordinator's view):
+
+- `GET|POST /mission/{id}/messages` is the coordinator chat. A follow-up is
+  routed only to the workers whose compartments it mentions
+  (`decomposer.route_question`), re-dispatched through the coordinator, and
+  answered from their replies. Replies never overwrite a worker's task output.
+- `GET /workers/{id}/transcript` returns exactly what a worker was sent
+  (instruction and context fragments) and everything it replied.
+- `POST /workers/{id}/messages` sends one worker a follow-up; it answers from
+  its own slice only.
+
+## Optional model calls
+
+Set `FLWR_MODEL_API_ENDPOINT`, `FLWR_MODEL_ID` and `FLWR_MODEL_API_KEY`
+(OpenAI Responses-compatible endpoint) on the nodes, or copy `.env.example` to
+a local `.env` (never committed or bundled). Without them, workers return
+deterministic seeded output.
 
 The research demo requires **10 registered SuperNodes**: one control node, eight
 original workers and one fresh replacement. `CONSTELLATION_FLOWER_NODES=9`
@@ -114,9 +136,13 @@ the web callback, but does not validate the interactive web workflow.
 3. ServerApp signs HTTPS requests to fetch the mission and exchange snapshots
    and commands. The API checks signatures, timestamps and single-use nonces.
    Worker messages contain only their individual task/context slice.
-4. The API mirrors public worker state; raw context fragments stay remote.
-   Browser attack requests become idempotent commands executed by ServerApp.
-   A pending attack prevents approval of stale synthesis.
+4. The trusted web control plane mirrors worker state, coordinator chat and
+   per-worker transcripts through the signed control channel. The operator's
+   transcript endpoint includes that worker's exact context; worker list responses
+   exclude context and logs. Keep this API on loopback or behind authentication.
+   Browser attack and follow-up requests become idempotent commands executed by
+   ServerApp. Follow-ups stay on the original worker's SuperNode; replacements
+   require an unused node. Pending commands/replies block approval.
 5. Human approval ends the control session and run. Otherwise the control
    window expires after `CONSTELLATION_CONTROL_TTL` seconds (default 900).
    Startup/connection failures are reported in mission state, never silently
@@ -158,7 +184,7 @@ Tests cover signed bridge requests and replay rejection, the full web→remote
 coordinator→worker→attack→replacement→approval flow with a simulated Grid,
 unique node allocation, exhausted capacity, timeouts, and existing modules.
 Cloud acceptance additionally requires an authenticated Flower account, a
-configured federation and a reachable HTTPS bridge.
+configured federation and either a trusted control SuperNode or a reachable HTTPS bridge.
 
 References: [run apps on SuperGrid](https://flower.ai/docs/framework/how-to-run-flower-apps-on-supergrid.html),
 [CLI JSON output](https://flower.ai/docs/framework/how-to-use-cli-json-output.html).
@@ -210,3 +236,14 @@ worker node completed the replacement, and final coverage remained 8/8. After
 web approval, the ServerApp returned naturally and Flower reported
 **`finished:completed`**, without a stop command. This supersedes the earlier
 native-control validation whose cleanup recorded `finished:stopped`.
+
+
+## Latest chat UI integration
+
+The chat home, lab selection, code mode, model selection, coordinator follow-ups,
+worker transcripts and automatic containment work through the SuperGrid control
+channel. After approval or expiration, start a new chat to send more work.
+Model credentials must be configured in the runtime doing the model call: worker
+credentials on SuperNodes, final-answer credentials on the trusted ServerApp.
+Credentials are never copied into shared run-config or the Flower bundle;
+without a model configuration, the UI displays deterministic findings.

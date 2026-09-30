@@ -2,22 +2,27 @@ import { useCallback, useEffect, useState } from 'react';
 import { Frame, Sidebar, Sky, type NavKey } from './components/Shell';
 import { NewMissionDialog, ResultDialog } from './components/Dialogs';
 import { Overview } from './pages/Overview';
-import { Compartments } from './pages/Compartments';
+import { ChatHome } from './pages/ChatHome';
+import { Compartments, pickWorker, type CompartmentTab } from './pages/Compartments';
 import { Federation } from './pages/Federation';
 import { useMission } from './lib/useMission';
 import { K } from './lib/theme';
+import { LABS, labOf } from './lib/labs';
 
 // Hash routes: #/  ·  #/compartments[/<workerKey>]  ·  #/federation
 interface Route {
   page: NavKey;
   worker: string | null;
+  tab: CompartmentTab;
 }
 
 function parseHash(): Route {
   const parts = window.location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
-  if (parts[0] === 'compartments') return { page: 'compartments', worker: parts[1] ? decodeURIComponent(parts[1]) : null };
-  if (parts[0] === 'federation') return { page: 'federation', worker: null };
-  return { page: 'overview', worker: null };
+  if (parts[0] === 'compartments')
+    return { page: 'compartments', worker: parts[1] ? decodeURIComponent(parts[1]) : null, tab: parts[2] === 'conversation' ? 'conversation' : 'compartment' };
+  if (parts[0] === 'federation') return { page: 'federation', worker: null, tab: 'compartment' };
+  if (parts[0] === 'overview') return { page: 'overview', worker: null, tab: 'compartment' };
+  return { page: 'chat', worker: null, tab: 'compartment' };
 }
 
 function useRoute() {
@@ -30,12 +35,15 @@ function useRoute() {
   return route;
 }
 
+const workerHash = (key: string, tab: CompartmentTab) =>
+  '#/compartments/' + encodeURIComponent(key) + (tab === 'conversation' ? '/conversation' : '');
+
 const go = (hash: string) => {
   window.location.hash = hash;
 };
 
 // Each screen in the mockup seeds its own starfield.
-const SKY_SEED: Record<NavKey, number> = { overview: 97, compartments: 131, federation: 173 };
+const SKY_SEED: Record<NavKey, number> = { chat: 97, overview: 97, compartments: 131, federation: 173 };
 
 export default function App() {
   const { view, actions } = useMission();
@@ -43,25 +51,63 @@ export default function App() {
   const [dialog, setDialog] = useState<'result' | 'new' | null>(null);
   const close = useCallback(() => setDialog(null), []);
 
+  const lab = labOf(view.lab);
   const phase = view.incident?.phase ?? 0;
   const missionDot = view.approved ? K.green : phase === 0 || phase === 6 ? K.blue : K.red;
+  const missions = view.missions.map((m) => ({
+    id: m.id,
+    name: m.name,
+    current: m.id === view.id,
+    // Open mission keeps the mockup's live dot; others show where they ended up.
+    dot: m.id === view.id ? missionDot : m.status === 'complete' || m.status === 'approved' ? K.green : m.status === 'failed' ? K.red : m.status === 'running' ? K.blue : '#525252',
+  }));
 
   return (
     <Frame>
       <Sky seed={SKY_SEED[route.page]} />
-      <Sidebar active={route.page} missionName={view.name} missionDot={missionDot} onNewMission={() => setDialog('new')} />
+      <Sidebar
+        active={route.page}
+        missions={missions}
+        onSelectMission={actions.selectMission}
+        onNewMission={() => {
+          actions.newChat();
+          go('#/');
+        }}
+        lab={lab}
+        labs={view.labSwitchable ? LABS : []}
+        onSelectLab={(id) => {
+          actions.selectLab(id);
+          go('#/');
+        }}
+      />
+      {route.page === 'chat' && (
+        <ChatHome
+          view={view}
+          actions={actions}
+          onOpenConversation={(key) => go(workerHash(key, 'conversation'))}
+          onReviewResult={() => setDialog('result')}
+        />
+      )}
       {route.page === 'overview' && (
         <Overview
           view={view}
           actions={actions}
-          onOpenWorker={(key) => go('#/compartments/' + encodeURIComponent(key))}
+          onOpenWorker={(key) => go(workerHash(key, 'compartment'))}
+          onOpenConversation={(key) => go(workerHash(key, 'conversation'))}
           onReviewResult={() => setDialog('result')}
         />
       )}
       {route.page === 'compartments' && (
-        <Compartments view={view} workerKey={route.worker} onSelect={(key) => go('#/compartments/' + encodeURIComponent(key))} />
+        <Compartments
+          view={view}
+          actions={actions}
+          workerKey={route.worker}
+          tab={route.tab}
+          onSelect={(key) => go(workerHash(key, route.tab))}
+          onTab={(tab) => go(workerHash(route.worker ?? pickWorker(view, null)?.key ?? '', tab))}
+        />
       )}
-      {route.page === 'federation' && <Federation />}
+      {route.page === 'federation' && <Federation labName={lab.name} />}
 
       {dialog === 'result' && <ResultDialog view={view} onApprove={() => actions.approve()} onClose={close} />}
       {dialog === 'new' && (

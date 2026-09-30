@@ -32,8 +32,8 @@ _AI_RESEARCH_SLICES = [
 _BLOCKED = ["full mission prompt", "proprietary dataset", "other workers' outputs"]
 
 
-def decompose_mission(prompt: str) -> List[Dict[str, Any]]:
-    """Fallback decomposer: fixed AI-research slices; never copies the prompt into workers."""
+def decompose_mission(prompt: str, domain: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Fallback decomposer: fixed AI-research slices for every lab; never copies the prompt into workers."""
     specs = []
     for i, (role, task, allowed, exposure) in enumerate(_AI_RESEARCH_SLICES, start=1):
         specs.append({

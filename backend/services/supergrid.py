@@ -53,6 +53,9 @@ class Snapshot(BaseModel):
     status: MissionStatus
     result: str | None = None
     error: str | None = None
+    chat: list[dict[str, Any]] | None = None
+    answer: str | None = None
+    answer_status: str = "none"
     responses: dict[str, dict[str, Any]] = Field(default_factory=dict)
     closed: bool = False
 
@@ -217,6 +220,9 @@ class SuperGrid:
                 store.add_worker(worker)
             mission.status = value.status
             mission.result = value.result
+            if value.chat is not None:
+                mission.chat = value.chat
+            mission.answer, mission.answer_status = value.answer, value.answer_status
             mission.error = value.error
             from services.coordinator import progress
             mission.progress = progress(value.workers)
@@ -228,9 +234,11 @@ class SuperGrid:
                 if response.get("error"):
                     future.set_exception(ValueError(response["error"]))
                 else:
-                    future.set_result(AttackResponse.model_validate(response["result"]))
+                    command = session.commands.get(cid, {})
+                    future.set_result(AttackResponse.model_validate(response["result"])
+                                      if command.get("kind", "attack") == "attack" else response["result"])
                 session.commands.pop(cid, None)
-            if session.commands:
+            if any(c.get("kind", "attack") == "attack" for c in session.commands.values()):
                 mission.status, mission.result = MissionStatus.RUNNING, None
             if value.closed:
                 session.closed = True
@@ -257,11 +265,28 @@ class SuperGrid:
             mission.status, mission.result = MissionStatus.RUNNING, None
             return future
 
+    def followup(self, mission_id: str, text: str, worker_id: str | None = None) -> Future:
+        with self.lock, store.lock:
+            mission = store.missions[mission_id]
+            session = self.sessions.get(mission_id)
+            if not session or session.closed or not mission.control_available or mission.approved:
+                raise ValueError("This SuperGrid session has ended. Start a new mission.")
+            if mission.status != MissionStatus.COMPLETE or session.commands or any(
+                w.answering for w in store.mission_workers(mission_id)
+            ):
+                raise ValueError("Wait for the mission and pending replies to finish")
+            cid = uuid.uuid4().hex
+            future = session.futures[cid] = Future()
+            session.commands[cid] = {"id": cid, "kind": "message", "text": text}
+            if worker_id:
+                session.commands[cid]["worker_id"] = worker_id
+            return future
+
     def approve(self, mission: Mission) -> None:
         with self.lock, store.lock:
             session = self.sessions.get(mission.id)
-            if session and session.commands:
-                raise ValueError("Wait for the pending attack to finish")
+            if (session and session.commands) or any(w.answering for w in store.mission_workers(mission.id)):
+                raise ValueError("Wait for pending commands and replies to finish")
             if mission.status != MissionStatus.COMPLETE and not mission.approved:
                 raise ValueError("Mission not complete")
             mission.approved, mission.status = True, MissionStatus.APPROVED
@@ -304,7 +329,9 @@ supergrid = SuperGrid()
 async def open_session(mission_id: str, request: Request) -> dict:
     supergrid.verify(mission_id, request, await request.body())
     with store.lock:
-        return {"prompt": store.missions[mission_id].prompt}
+        mission = store.missions[mission_id]
+        return {"prompt": mission.prompt, "lab": mission.lab, "mode": mission.mode,
+                "model": mission.model, "chat": mission.chat}
 
 
 @router.post("/{mission_id}/sync")

@@ -20,6 +20,7 @@ Callers talk to the loop through thread-safe futures:
     swarm = get_swarm()
     specs = swarm.submit_mission(key, handler).result()
     response = swarm.attack(key, worker_id).result()
+    swarm.dispatch(key, spec).result()   # follow-up question to one worker
 
 `handler` is the mission's trusted bookkeeping (the API store, or plain dicts
 for `flwr run`). The loop calls, always from its own thread:
@@ -103,6 +104,10 @@ class Swarm:
     def attack(self, key: str, worker_id: str) -> Future:
         return self._put("attack", key, worker_id)
 
+    def dispatch(self, key: str, spec: Any) -> Future:
+        """Send one more payload (e.g. a follow-up question) to a mission's worker."""
+        return self._put("dispatch", key, spec)
+
     def has_mission(self, key: str) -> bool:
         return key in self._missions
 
@@ -156,6 +161,8 @@ class Swarm:
                     fut.set_result(self._start_mission(transport, *args))
                 elif kind == "attack":
                     fut.set_result(self._attack(transport, *args))
+                elif kind == "dispatch":
+                    fut.set_result(self._redispatch(transport, *args))
             except BaseException as exc:
                 fut.set_exception(exc)
 
@@ -182,6 +189,15 @@ class Swarm:
             avoid = {mission.node_of[worker_id]} if worker_id in mission.node_of else set()
             self._dispatch(transport, key, mission, replacement, avoid)
         return response
+
+    def _redispatch(self, transport: Transport, key: str, spec: Any) -> None:
+        mission = self._missions.get(key)
+        if mission is None:
+            raise KeyError(f"unknown mission {key}")
+        worker_id = spec["id"] if isinstance(spec, dict) else getattr(spec, "id")
+        if worker_id in mission.quarantined:
+            raise ValueError(f"worker {worker_id} is quarantined")
+        self._dispatch(transport, key, mission, spec)
 
     def _dispatch(self, transport: Transport, key: str, mission: _Mission, spec: Any, avoid: set[str] = frozenset()) -> None:
         payload = _payload(spec, self._index)

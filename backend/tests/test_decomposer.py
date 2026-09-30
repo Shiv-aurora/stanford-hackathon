@@ -1,6 +1,8 @@
 import pytest
 
 from backend.services.decomposer import (
+    BIOTECH_DEMO_MISSION,
+    DEFENSE_DEMO_MISSION,
     DEMO_MISSION,
     WorkerSpec,
     decompose_mission,
@@ -100,3 +102,46 @@ def test_generic_fallback_fragments_the_prompt():
 def test_empty_prompt_rejected():
     with pytest.raises(ValueError):
         decompose_mission("   ")
+
+
+LAB_DEMOS = [
+    ("defense", DEFENSE_DEMO_MISSION, "mission_objective", "Bastion"),
+    ("biotech", BIOTECH_DEMO_MISSION, "program_goal", "Meridian"),
+]
+
+
+@pytest.mark.parametrize("domain,mission,secret_category,codename", LAB_DEMOS)
+def test_lab_demo_decomposition(domain, mission, secret_category, codename):
+    fragments = extract_fragments(mission, domain)
+    assert all(fragments.values()), "every compartment gets one demo sentence"
+    workers = decompose_mission(mission, mission_id="m1", domain=domain)
+    assert len(workers) == 8
+    assert len({w.role for w in workers}) == 8
+    for w in workers:
+        visible = _visible_text(w)
+        assert mission not in visible and len(visible) < len(mission) / 2
+        assert secret_category not in w.allowed_context
+        assert codename not in visible
+        assert set(w.allowed_context) | set(w.blocked_context) == set(fragments)
+        assert 0.0 < w.context_exposure < 1.0
+
+
+def test_defense_intel_sources_stay_with_coordinator():
+    workers = decompose_mission(DEFENSE_DEMO_MISSION, domain="defense")
+    assert all("intel_sources" not in w.allowed_context for w in workers)
+
+
+def test_domain_overrides_keyword_detection():
+    # A lab mission keeps its lab's split even if it mentions no domain keywords.
+    workers = decompose_mission(GENERIC_PROMPT, domain="biotech")
+    assert [w.role for w in workers][:2] == ["literature", "target_biologist"]
+    assert [w.role for w in decompose_mission(GENERIC_PROMPT)][0] == "background"
+
+
+def test_route_question_matches_every_touched_compartment():
+    from backend.services.decomposer import route_question
+
+    assert route_question("Are the jammers enough against the swarm?", "defense") == {"effectors", "threat_assessment"}
+    assert route_question("How bad is the liver toxicity?", "biotech") == {"preclinical_results"}
+    # The coordinator-only objective is never a routing target.
+    assert route_question("What is the confidential project objective?", "defense") == set()

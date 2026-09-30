@@ -6,14 +6,15 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 
 from services.coordinator import mission_status
-from services.flower_app import GridTransport, StandaloneMission
+from services.flower_app import GridTransport
 from services.remote_protocol import SignedBridge
 from services.swarm import Swarm
 
 
 def public_worker(worker: dict) -> dict:
-    # Never return the raw fragments to the web mirror (or to Flower logs).
-    return {k: v for k, v in worker.items() if k != "context"}
+    # Scoped transcript context returns only over the signed trusted control channel.
+    # Worker lists still exclude context/logs; no transcripts enter Flower logs.
+    return {k: v for k, v in worker.items() if k not in ("context", "pending_message", "model")}
 
 
 def run_remote(grid: Any, context: Any) -> None:
@@ -42,9 +43,10 @@ def run_remote(grid: Any, context: Any) -> None:
                 raise RuntimeError(f"Web bridge did not accept the ServerApp handshake: {detail}") from None
             time.sleep(1)
 
-    mission = StandaloneMission(session["prompt"], str(cfg["mission-id"]))
+    from services.remote_mission import RemoteMission
     swarm = Swarm()
     swarm.alive = True
+    mission = RemoteMission(session, str(cfg["mission-id"]), swarm)
     start = swarm.submit_mission(mission.mission_id, mission)
     pending: dict[str, Any] = {}
     responses: dict[str, dict] = {}
@@ -59,6 +61,7 @@ def run_remote(grid: Any, context: Any) -> None:
         if now - last_sync < 0.5:
             return
         last_sync = now
+        mission.check_containment()
         if start.done() and start.exception():
             error = str(start.exception())
         for command_id, future in list(pending.items()):
@@ -83,6 +86,7 @@ def run_remote(grid: Any, context: Any) -> None:
         value = {
             "workers": [public_worker(w) for w in mission.workers.values()],
             "result": mission.result, "error": error,
+            "chat": mission.chat, "answer": mission.answer, "answer_status": mission.answer_status,
             "status": "failed" if error else mission_status(list(mission.workers.values())),
             "responses": responses, "closed": expired or bool(error),
         }
@@ -99,7 +103,13 @@ def run_remote(grid: Any, context: Any) -> None:
         for cmd in reply.get("commands", []):
             cid = cmd["id"]
             if cid not in pending and cid not in responses:
-                pending[cid] = swarm.attack(mission.mission_id, cmd["worker_id"])
+                if cmd.get("kind", "attack") == "attack":
+                    pending[cid] = swarm.attack(mission.mission_id, cmd["worker_id"])
+                else:
+                    try:
+                        responses[cid] = {"result": mission.followup(cmd["text"], cmd.get("worker_id"))}
+                    except ValueError as exc:
+                        responses[cid] = {"error": str(exc)}
 
     try:
         transport = GridTransport(grid, int(cfg.get("min-nodes", 9)), float(cfg.get("timeout", 120)),

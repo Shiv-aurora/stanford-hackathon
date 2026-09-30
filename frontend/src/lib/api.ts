@@ -2,14 +2,15 @@
 //
 // Visual components consume one stable shape (MissionView, see ./types). Two
 // sources produce it:
-//   mock (default) – deterministic simulation, no backend needed (./mock)
-//   api            – the FastAPI backend from CONTRACT.md
+//   mock (explicit preview) – deterministic simulation, no backend needed (./mock)
+//   api (default)  – the FastAPI backend from CONTRACT.md
 //
 // Pick the mode with `?mode=api` in the URL or VITE_CONSTELLATION_MODE=api.
 // Backend quirks are absorbed here, never in the components.
 
-import { DEMO_PROMPT, MockMission, TICK_MS } from './mock';
-import type { Incident, MissionActions, MissionStatus, MissionView, UiStatus, WorkerView } from './types';
+import { LABS, labOf, type ChatMode, type LabId } from './labs';
+import { MockMission, TICK_MS } from './mock';
+import type { ChatMessage, Incident, MissionActions, MissionStatus, MissionSummary, MissionView, TranscriptEntry, UiStatus, WorkerView } from './types';
 
 // ---------------------------------------------------------------------------
 // Contract types (CONTRACT.md)
@@ -36,6 +37,30 @@ export interface BackendWorker {
   finished_at?: number | null;
   node_id?: string | null;
   runtime?: string | null;
+  answering?: boolean;
+}
+
+export interface BackendChatMessage {
+  id: string;
+  role: 'user' | 'coordinator';
+  kind?: 'text' | 'security';
+  details?: string | null;
+  writing?: boolean;
+  text: string | null;
+  pending: boolean;
+  routed_to: string[];
+  categories: string[];
+  at: number;
+}
+
+export interface BackendTranscriptEntry {
+  id: string;
+  kind: TranscriptEntry['kind'];
+  text: string;
+  at: number;
+  context: Record<string, string>;
+  message_id?: string | null;
+  note?: string | null;
 }
 
 export interface BackendMission {
@@ -51,6 +76,10 @@ export interface BackendMission {
   progress: number;
   result: string | null;
   approved: boolean;
+  created_at?: number | null;
+  lab?: string;
+  mode?: string;
+  model?: string;
 }
 
 export interface BackendResult {
@@ -94,12 +123,20 @@ async function http<T>(method: 'GET' | 'POST', path: string, body?: unknown): Pr
 
 export const api = {
   health: () => http<{ status: string }>('GET', '/health'),
-  createMission: (prompt: string) => http<BackendMission>('POST', '/mission', { prompt }),
+  listMissions: (lab: LabId) => http<BackendMission[]>('GET', `/missions?lab=${lab}`),
+  createMission: (prompt: string, lab: LabId, mode: ChatMode, model: string) =>
+    http<BackendMission>('POST', '/mission', { prompt, lab, mode, model }),
+  listModels: () => http<{ id: string; label: string }[]>('GET', '/models'),
   getMission: (id: string) => http<BackendMission>('GET', `/mission/${encodeURIComponent(id)}`),
   getWorkers: (id: string) => http<BackendWorker[]>('GET', `/mission/${encodeURIComponent(id)}/workers`),
   attackWorker: (workerId: string) => http<AttackResponse>('POST', `/workers/${encodeURIComponent(workerId)}/attack`),
   getResult: (id: string) => http<BackendResult>('GET', `/mission/${encodeURIComponent(id)}/result`),
   approveMission: (id: string) => http<BackendMission>('POST', `/mission/${encodeURIComponent(id)}/approve`),
+  getMessages: (id: string) => http<BackendChatMessage[]>('GET', `/mission/${encodeURIComponent(id)}/messages`),
+  postMessage: (id: string, text: string) => http<BackendChatMessage[]>('POST', `/mission/${encodeURIComponent(id)}/messages`, { text }),
+  getTranscript: (workerId: string) => http<BackendTranscriptEntry[]>('GET', `/workers/${encodeURIComponent(workerId)}/transcript`),
+  messageWorker: (workerId: string, text: string) =>
+    http<BackendTranscriptEntry>('POST', `/workers/${encodeURIComponent(workerId)}/messages`, { text }),
 };
 
 // ---------------------------------------------------------------------------
@@ -136,7 +173,7 @@ function baseStatus(s: BackendWorkerStatus): UiStatus {
 function toWorker(w: BackendWorker, slot: number, star: string, index: number, pct: number): WorkerView {
   const allowed = w.allowed_context ?? [];
   const blocked = w.blocked_context ?? [];
-  const status = baseStatus(w.status);
+  const status = w.answering ? 'reply' : baseStatus(w.status);
   const rejected = w.tainted || w.quarantined;
   return {
     key: w.id,
@@ -162,16 +199,40 @@ function toWorker(w: BackendWorker, slot: number, star: string, index: number, p
     output: rejected ? w.output ?? 'Tainted output discarded before it reached the coordinator.' : w.output,
     outputState: rejected ? 'rejected' : w.status === 'complete' ? 'accepted' : 'pending',
     tainted: w.tainted,
+    answering: !!w.answering,
   };
 }
 
-function emptyView(prompt: string, error: string | null): MissionView {
+/** Same keywords the backend decomposer uses to pick its AI-research split. */
+const AI_KEYWORDS = ['model', 'training', 'transformer', 'llm', 'neural', 'optimizer', 'benchmark', 'dataset', 'gpu', 'architecture', 'fine-tun', 'inference'];
+
+function missionKind(prompt: string, lab: LabId): string {
+  // Defense and biotech missions always get their lab's decomposition.
+  if (lab !== 'ai') return labOf(lab).kind;
+  const p = prompt.toLowerCase();
+  return AI_KEYWORDS.filter((k) => p.includes(k)).length >= 2 ? 'Confidential AI research' : 'Confidential research';
+}
+
+/** Code name for a lab's `index`-th mission. */
+function codeName(lab: LabId, index: number): string {
+  const names = labOf(lab).codeNames;
+  const base = names[index % names.length];
+  const round = Math.floor(index / names.length);
+  return round ? `${base} ${round + 1}` : base;
+}
+
+function formatClock(ms: number): string {
+  const d = new Date(ms);
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+
+function emptyView(prompt: string, error: string | null, lab: LabId): MissionView {
   return {
     mode: 'api',
     id: '',
-    name: 'Orion',
+    name: labOf(lab).codeNames[0],
     prompt,
-    subtitle: 'Confidential AI research · connecting to coordinator',
+    subtitle: `${labOf(lab).kind} · connecting to coordinator`,
     status: 'created',
     workers: [],
     allWorkers: [],
@@ -181,6 +242,26 @@ function emptyView(prompt: string, error: string | null): MissionView {
     result: null,
     approved: false,
     error,
+    missions: [],
+    lab,
+    labSwitchable: true,
+    chat: [],
+    chatBlocked: error ? 'Connecting to the coordinator…' : null,
+    transcript: null,
+    models: [],
+    model: '',
+    durationMs: null,
+  };
+}
+
+function toEntry(e: BackendTranscriptEntry): TranscriptEntry {
+  return {
+    id: e.id,
+    kind: e.kind,
+    text: e.text,
+    at: e.at * 1000,
+    context: Object.entries(e.context ?? {}).map(([label, text]) => ({ label, text })),
+    note: e.note ?? null,
   };
 }
 
@@ -188,23 +269,39 @@ type Listener = () => void;
 const STORE_KEY = 'constellation.api.mission';
 
 export class ApiMission implements MissionActions {
+  private lab: LabId = 'ai';
   private missionId: string | null = null;
   private createdAt = Date.now();
   private mission: BackendMission | null = null;
+  /** Every mission on the backend, in creation order (for the sidebar and code names). */
+  private missionList: BackendMission[] = [];
   private workers: BackendWorker[] = [];
   private result: BackendResult | null = null;
+  private chat: BackendChatMessage[] = [];
+  /** Worker whose conversation is on screen, and its entries. */
+  private watched: string | null = null;
+  private transcript: BackendTranscriptEntry[] = [];
+  /** A follow-up is being posted (keeps the composer disabled until the POST returns). */
+  private sending = false;
   private error: string | null = null;
   private pollError: string | null = null;
   private actionPending: MissionView['actionPending'] = null;
-  private prompt = DEMO_PROMPT;
+  private prompt = LABS[0].demoPrompt;
+  /** A POST /mission is in flight. */
+  private creating = false;
+  /** Showing an empty chat: the next message starts a new mission. */
+  private drafting = false;
+  private models: { id: string; label: string }[] = [];
   /** Client-side timing so progress bars and the containment steps animate. */
   private runningSince = new Map<string, number>();
   private attackedAt = new Map<string, number>();
   private frozenPct = new Map<string, number>();
   private timer: ReturnType<typeof setInterval> | null = null;
   private busy = false;
+  /** A poll was requested while one was in flight (e.g. right after switching missions). */
+  private again = false;
   private listeners = new Set<Listener>();
-  private view: MissionView = emptyView(DEMO_PROMPT, null);
+  private view: MissionView = emptyView(LABS[0].demoPrompt, null, 'ai');
 
   constructor() {
     try {
@@ -212,6 +309,10 @@ export class ApiMission implements MissionActions {
       const saved = linked && /^m-[a-zA-Z0-9_-]+$/.test(linked)
         ? { id: linked, createdAt: Date.now() }
         : JSON.parse(sessionStorage.getItem(STORE_KEY) || 'null');
+      if (saved && LABS.some((l) => l.id === saved.lab)) {
+        this.lab = saved.lab;
+        this.prompt = labOf(this.lab).demoPrompt;
+      }
       if (saved && typeof saved.id === 'string') {
         this.missionId = saved.id;
         this.createdAt = saved.createdAt || Date.now();
@@ -265,7 +366,88 @@ export class ApiMission implements MissionActions {
       .finally(() => { this.actionPending = null; this.emit(); });
   };
 
-  reset = () => this.createMission(this.mission?.prompt || this.prompt);
+  reset = () => this.createMission(this.mission?.prompt || this.prompt, (this.mission?.mode as ChatMode) || 'chat');
+
+  newChat = () => {
+    this.missionId = null;
+    this.mission = null;
+    this.workers = [];
+    this.result = null;
+    this.chat = [];
+    this.drafting = true;
+    this.error = null;
+    this.pollError = null;
+    this.persist(null);
+    this.emit();
+  };
+
+  sendMessage = (text: string) => {
+    const id = this.missionId;
+    if (!id || !text.trim() || this.sending) return;
+    this.sending = true;
+    this.emit();
+    api
+      .postMessage(id, text.trim())
+      .then((added) => {
+        if (this.missionId === id) this.chat = [...this.chat.filter((m) => !added.some((a) => a.id === m.id)), ...added];
+        this.error = null;
+      })
+      .catch((e: unknown) => this.fail(e))
+      .finally(() => {
+        this.sending = false;
+        void this.poll();
+      });
+  };
+
+  messageWorker = (workerKey: string, text: string) => {
+    if (!text.trim()) return;
+    api
+      .messageWorker(workerKey, text.trim())
+      .then((entry) => {
+        if (this.watched === workerKey) this.transcript = [...this.transcript, entry];
+        this.error = null;
+        this.emit();
+        void this.poll();
+      })
+      .catch((e: unknown) => this.fail(e));
+  };
+
+  watchWorker = (workerKey: string | null) => {
+    if (workerKey === this.watched) return;
+    this.watched = workerKey;
+    this.transcript = [];
+    this.emit();
+    if (workerKey) void this.poll();
+  };
+
+  selectLab = (id: LabId) => {
+    if (id === this.lab) return;
+    this.lab = id;
+    this.prompt = labOf(id).demoPrompt;
+    this.missionId = null;
+    this.mission = null;
+    this.missionList = [];
+    this.workers = [];
+    this.result = null;
+    this.chat = [];
+    this.runningSince.clear();
+    this.attackedAt.clear();
+    this.frozenPct.clear();
+    this.error = null;
+    this.pollError = null;
+    this.persist(null);
+    this.emit();
+    // Opens the lab's newest mission, or starts its demo mission if it has none.
+    void this.poll();
+  };
+
+  selectMission = (id: string) => {
+    if (id === this.missionId) return;
+    const m = this.missionList.find((x) => x.id === id);
+    if (!m) return;
+    this.open(m);
+    void this.poll();
+  };
 
   approve = () => {
     if (!this.missionId) return;
@@ -280,37 +462,61 @@ export class ApiMission implements MissionActions {
       .catch((e: unknown) => this.fail(e));
   };
 
-  createMission = (prompt: string) => {
-    if (this.actionPending) return;
+  createMission = (prompt: string, mode: ChatMode = 'chat', model = '') => {
+    if (this.actionPending || this.creating) return;
     this.actionPending = 'create';
     this.error = null;
+    const lab = this.lab;
+    this.prompt = prompt.trim() || labOf(lab).demoPrompt;
+    this.creating = true;
+    this.drafting = false;
     this.emit();
-    this.prompt = prompt.trim() || DEMO_PROMPT;
     api
-      .createMission(this.prompt)
+      .createMission(this.prompt, lab, mode, model)
       .then((m) => {
-        this.missionId = m.id;
-        this.createdAt = Date.now();
-        const url = new URL(window.location.href);
-        url.searchParams.set('mission', m.id);
-        window.history.replaceState(null, '', url);
-        this.mission = m;
-        this.workers = [];
-        this.result = null;
-        this.runningSince.clear();
-        this.attackedAt.clear();
-        this.frozenPct.clear();
-        this.error = null;
-        try {
-          sessionStorage.setItem(STORE_KEY, JSON.stringify({ id: m.id, createdAt: this.createdAt }));
-        } catch {
-          /* storage unavailable */
-        }
+        this.creating = false;
+        if (lab !== this.lab) return; // switched labs meanwhile; it shows up in that lab's list
+        this.missionList = [...this.missionList.filter((x) => x.id !== m.id), m];
+        this.open(m);
         return this.poll();
       })
-      .catch((e: unknown) => this.fail(e))
+      .catch((e: unknown) => {
+        this.creating = false;
+        this.fail(e);
+      })
       .finally(() => { this.actionPending = null; this.emit(); });
   };
+
+  /** Switch the view to `m`, dropping the previous mission's client-side timing. */
+  private open(m: BackendMission) {
+    this.missionId = m.id;
+    this.drafting = false;
+    this.createdAt = m.created_at ? m.created_at * 1000 : Date.now();
+    this.mission = m;
+    if (m.lab && LABS.some((l) => l.id === m.lab)) this.lab = m.lab as LabId;
+    this.pollError = null;
+    this.workers = [];
+    this.result = null;
+    this.chat = [];
+    this.runningSince.clear();
+    this.attackedAt.clear();
+    this.frozenPct.clear();
+    this.error = null;
+    this.persist(m.id);
+    this.emit();
+  }
+
+  private persist(id: string | null) {
+    const url = new URL(window.location.href);
+    if (id) url.searchParams.set('mission', id);
+    else url.searchParams.delete('mission');
+    window.history.replaceState(null, '', url);
+    try {
+      sessionStorage.setItem(STORE_KEY, JSON.stringify({ id, createdAt: this.createdAt, lab: this.lab }));
+    } catch {
+      /* storage unavailable */
+    }
+  }
 
   private upsert(w: BackendWorker) {
     const i = this.workers.findIndex((x) => x.id === w.id);
@@ -333,16 +539,35 @@ export class ApiMission implements MissionActions {
   }
 
   private async poll() {
-    if (this.busy) return;
+    if (this.busy) {
+      this.again = true;
+      return;
+    }
     this.busy = true;
     try {
+      const lab = this.lab;
+      if (!this.models.length) this.models = await api.listModels().catch(() => []);
+      const list = await api.listMissions(lab);
+      if (lab !== this.lab) return; // switched labs while the list was loading
+      this.missionList = list;
       if (!this.missionId) {
-        await api.health();
-        this.createMission(this.prompt);
-        return;
+        // Reopen the lab's newest mission rather than starting a new one on every page load.
+        const newest = this.missionList[this.missionList.length - 1];
+        if (this.drafting || this.creating || !newest) {
+          // Empty chat: wait for the first message (or a demo card).
+          this.drafting = true;
+          this.mission = null;
+          this.workers = [];
+          this.chat = [];
+          this.error = null;
+          return;
+        }
+        this.open(newest);
       }
+      const id = this.missionId as string;
+      let mission: BackendMission;
       try {
-        this.mission = await api.getMission(this.missionId);
+        mission = await api.getMission(id);
       } catch (e) {
         // A stale tab must not silently submit another cloud run after restart.
         if (e instanceof Error && / 404 /.test(e.message)) {
@@ -351,14 +576,40 @@ export class ApiMission implements MissionActions {
         }
         throw e;
       }
-      this.workers = await api.getWorkers(this.missionId);
-      await this.refreshResult();
+      const watched = this.watched;
+      const [workers, chat, transcript] = await Promise.all([
+        api.getWorkers(id),
+        api.getMessages(id),
+        watched ? api.getTranscript(watched).catch(() => [] as BackendTranscriptEntry[]) : Promise.resolve([] as BackendTranscriptEntry[]),
+      ]);
+      const finished = mission.status === 'complete' || mission.status === 'approved';
+      const result = finished ? await api.getResult(id) : null;
+      // The user may have switched missions while these requests were in flight.
+      if (this.missionId !== id) return;
+      // Workers the coordinator quarantined on its own: play the containment steps.
+      for (const w of workers) {
+        const prev = this.workers.find((p) => p.id === w.id);
+        if (w.quarantined && prev && !prev.quarantined && !this.attackedAt.has(w.id)) {
+          this.attackedAt.set(w.id, Date.now());
+          this.frozenPct.set(w.id, 100);
+        }
+      }
+      this.mission = mission;
+      if (mission.lab && LABS.some((l) => l.id === mission.lab)) this.lab = mission.lab as LabId;
+      this.workers = workers;
+      this.result = result;
+      this.chat = chat;
+      if (watched === this.watched) this.transcript = transcript;
       this.pollError = null;
     } catch (e) {
       this.pollError = e instanceof Error ? `Backend unreachable (${e.message})` : 'Backend unreachable';
     } finally {
       this.busy = false;
       this.emit();
+      if (this.again) {
+        this.again = false;
+        void this.poll();
+      }
     }
   }
 
@@ -383,7 +634,12 @@ export class ApiMission implements MissionActions {
 
   private compute(): MissionView {
     const m = this.mission;
-    if (!m) return emptyView(this.prompt, this.error);
+    if (!m) return { ...emptyView(this.prompt, this.error ?? this.pollError, this.lab), models: this.models, actionPending: this.actionPending };
+    const listed = this.missionList.some((x) => x.id === m.id) ? this.missionList : [...this.missionList, m];
+    const missions: MissionSummary[] = listed
+      .map((x, i) => ({ id: x.id, name: codeName(this.lab, i), status: x.id === m.id ? m.status : x.status }))
+      .reverse();
+    const name = missions.find((x) => x.id === m.id)?.name ?? labOf(this.lab).codeNames[0];
     const now = Date.now();
     const byId = new Map(this.workers.map((w) => [w.id, w]));
     const ordered = [...(m.worker_ids.map((id) => byId.get(id)).filter(Boolean) as BackendWorker[])];
@@ -450,16 +706,16 @@ export class ApiMission implements MissionActions {
     const workers = rows.filter(Boolean);
     const hidden = incident && incident.replacement === null ? incident.attacked.key : null;
     const allWorkers = ordered.filter((w) => !hidden || w.replacement_for !== hidden).map((w) => views.get(w.id)!);
-    const doneCount = workers.filter((w) => w.status === 'done').length;
+    const doneCount = workers.filter((w) => w.status === 'done' || w.status === 'reply').length;
     const finished = m.status === 'complete' || m.status === 'approved';
     const progress = finished ? 100 : workers.length ? workers.reduce((s, w) => s + w.pct, 0) / workers.length : 0;
 
     return {
       mode: 'api',
       id: m.id,
-      name: 'Orion',
+      name,
       prompt: m.prompt,
-      subtitle: `Confidential AI research · ${m.runtime === 'supergrid' ? 'ServerApp on SuperGrid' : 'Local coordinator'} · ${m.run_id ? `run ${m.run_id}` : 'awaiting run'}`,
+      subtitle: `${missionKind(m.prompt, this.lab)} · started ${formatClock(this.createdAt)} · ${m.runtime === 'supergrid' ? 'ServerApp on SuperGrid' : 'Local coordinator'}`,
       runtime: m.runtime,
       runId: m.run_id,
       federation: m.federation,
@@ -474,6 +730,39 @@ export class ApiMission implements MissionActions {
       result: this.result?.result ?? m.result,
       approved: m.approved,
       error: this.error ?? this.pollError ?? m.error ?? null,
+      missions,
+      lab: this.lab,
+      labSwitchable: true,
+      chat: this.chat.map(
+        (c): ChatMessage => ({
+          id: c.id,
+          role: c.role,
+          kind: c.kind ?? 'text',
+          text: c.text,
+          details: c.details ?? null,
+          writing: !!c.writing,
+          pending: c.pending,
+          routedTo: c.routed_to.map((key) => ({ key, star: starOf.get(key) ?? key })),
+          categories: c.categories,
+        }),
+      ),
+      chatBlocked: m.runtime === 'supergrid' && (m.approved || (finished && !m.control_available))
+        ? 'This cloud session has ended. Start a new chat.'
+        : this.sending
+        ? 'Sending…'
+        : this.workers.some((w) => w.answering)
+          ? 'The coordinator is still answering.'
+          : m.status === 'complete' || m.status === 'approved'
+            ? null
+            : m.status === 'failed'
+              ? 'The mission failed.'
+              : 'Follow-ups open once the mission completes.',
+      transcript: this.watched ? { key: this.watched, entries: this.transcript.map(toEntry) } : null,
+      models: this.models,
+      model: m.model ?? '',
+      durationMs: finished
+        ? Math.max(0, Math.max(...this.workers.map((w) => (w.finished_at ?? 0) * 1000)) - this.createdAt) || null
+        : null,
     };
   }
 }

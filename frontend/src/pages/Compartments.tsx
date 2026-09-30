@@ -1,8 +1,11 @@
-import type { CSSProperties } from 'react';
+import { useEffect, type CSSProperties } from 'react';
 import { Column, crumb, crumbHere, crumbSep } from '../components/Shell';
 import { CheckIcon, FileIcon, LockIcon } from '../components/Icons';
+import { Segmented, Transcript } from '../components/Chat';
 import { MONO, OUTPUT_PILL, STY } from '../lib/theme';
-import type { MissionView, WorkerView } from '../lib/types';
+import type { MissionActions, MissionView, WorkerView } from '../lib/types';
+
+export type CompartmentTab = 'compartment' | 'conversation';
 
 const card: CSSProperties = {
   borderRadius: 12,
@@ -39,16 +42,35 @@ function isolationRows(w: WorkerView) {
   ];
 }
 
+/** Why this worker can't take a message right now; null when it can. */
+function messageBlocked(w: WorkerView): string | null {
+  if (w.tainted || w.status === 'revoke') return `${w.star} is quarantined. Message its replacement instead.`;
+  if (w.answering) return `${w.star} is answering…`;
+  if (w.status !== 'done') return `${w.star} is still working on its task.`;
+  return null;
+}
+
 export function Compartments({
   view,
+  actions,
   workerKey,
+  tab,
   onSelect,
+  onTab,
 }: {
   view: MissionView;
+  actions: MissionActions;
   workerKey: string | null;
+  tab: CompartmentTab;
   onSelect: (key: string) => void;
+  onTab: (tab: CompartmentTab) => void;
 }) {
   const w = pickWorker(view, workerKey);
+  const watch = tab === 'conversation' && w ? w.key : null;
+  useEffect(() => {
+    actions.watchWorker(watch);
+  }, [actions, watch]);
+  useEffect(() => () => actions.watchWorker(null), [actions]);
 
   if (!w) {
     return (
@@ -101,6 +123,7 @@ export function Compartments({
           </span>
         </div>
 
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
         <div role="group" aria-label="Worker" style={{ alignSelf: 'flex-start', display: 'flex', gap: 2, padding: 4, borderRadius: 12, background: '#1F1F23' }}>
           {view.allWorkers.map((t) => {
             const on = t.key === w.key;
@@ -126,7 +149,35 @@ export function Compartments({
             );
           })}
         </div>
+        <div style={{ marginLeft: 'auto' }}>
+          <Segmented
+            label="Compartment or conversation"
+            value={tab}
+            options={[
+              ['compartment', 'Compartment'],
+              ['conversation', 'Conversation'],
+            ]}
+            onChange={onTab}
+          />
+        </div>
+        </div>
 
+        {tab === 'conversation' ? (
+          <section style={{ ...card, padding: 0, gap: 0, flexGrow: 1, minHeight: 0, overflow: 'hidden' }}>
+            <div style={{ padding: '16px 16px 12px', borderBottom: '1px solid #202024', display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span style={cardTitle}>Conversation</span>
+              <span style={cardSub}>
+                Everything the coordinator sent {w.star} and everything it sent back. {w.star} answers from its own {w.share}% slice only.
+              </span>
+            </div>
+            <Transcript
+              star={w.star}
+              entries={view.transcript?.key === w.key ? view.transcript.entries : []}
+              blocked={messageBlocked(w)}
+              onSend={(text) => actions.messageWorker(w.key, text)}
+            />
+          </section>
+        ) : (
         <div style={{ flexGrow: 1, minHeight: 0, display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 20 }}>
           {/* Receives — allowed / blocked context */}
           <section style={card}>
@@ -191,6 +242,13 @@ export function Compartments({
                 {w.output ?? 'Not returned yet. Outputs go to the coordinator only.'}
               </span>
               {rejected && <span style={{ fontSize: 12, color: '#B4B4B4' }}>Excluded from the synthesis · never reached other workers</span>}
+              <button
+                type="button"
+                onClick={() => onTab('conversation')}
+                style={{ alignSelf: 'flex-start', padding: 0, border: 'none', background: 'transparent', color: '#93C5FD', fontSize: 12, fontWeight: 500 }}
+              >
+                Open conversation →
+              </button>
             </div>
           </section>
 
@@ -252,6 +310,7 @@ export function Compartments({
             </div>
           </section>
         </div>
+        )}
       </main>
     </Column>
   );
