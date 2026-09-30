@@ -12,7 +12,7 @@ import json
 import time
 import uuid
 from urllib import request
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urljoin
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
@@ -43,15 +43,20 @@ class SignedBridge:
         print(ANNOUNCEMENT + json.dumps({"mission_id": self.mission_id, "run_id": self.run_id,
                                         "public_key": base64.b64encode(public_key).decode()}), flush=True)
 
-    def post(self, action: str, value: dict) -> dict:
+    def envelope(self, action: str, value: dict) -> tuple[str, bytes, dict]:
         url = f"{self.url}/internal/supergrid/{self.mission_id}/{action}"
         data = json.dumps(value, separators=(",", ":")).encode()
         timestamp, nonce = str(int(time.time())), uuid.uuid4().hex
         signature = self.key.sign(signing_bytes("POST", urlsplit(url).path, timestamp, nonce, data))
-        req = request.Request(url, data=data, method="POST", headers={
+        headers = {
             "Content-Type": "application/json", "X-Constellation-Time": timestamp,
             "X-Constellation-Nonce": nonce,
             "X-Constellation-Signature": base64.b64encode(signature).decode(),
-        })
+        }
+        return urlsplit(url).path, data, headers
+
+    def post(self, action: str, value: dict) -> dict:
+        path, data, headers = self.envelope(action, value)
+        req = request.Request(urljoin(self.url, path), data=data, method="POST", headers=headers)
         with request.urlopen(req, timeout=10) as response:
             return json.load(response)

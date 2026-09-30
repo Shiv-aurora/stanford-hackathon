@@ -18,10 +18,15 @@ def public_worker(worker: dict) -> dict:
 
 def run_remote(grid: Any, context: Any) -> None:
     cfg = context.run_config
-    bridge = SignedBridge(str(cfg["bridge-url"]), str(cfg["mission-id"]), str(context.run_id))
+    control_node = int(cfg.get("control-node-id") or 0)
+    if control_node:
+        from services.control_bridge import GridBridge
+        bridge = GridBridge(grid, control_node, str(cfg["mission-id"]), str(context.run_id))
+    else:
+        bridge = SignedBridge(str(cfg["bridge-url"]), str(cfg["mission-id"]), str(context.run_id))
     bridge.announce()
     # The API authenticates this key by reading this run's Flower server log.
-    deadline = time.monotonic() + 90
+    deadline = time.monotonic() + (240 if control_node else 90)
     last_error = None
     while True:
         try:
@@ -97,7 +102,8 @@ def run_remote(grid: Any, context: Any) -> None:
                 pending[cid] = swarm.attack(mission.mission_id, cmd["worker_id"])
 
     try:
-        transport = GridTransport(grid, int(cfg.get("min-nodes", 9)), float(cfg.get("timeout", 120)))
+        transport = GridTransport(grid, int(cfg.get("min-nodes", 9)), float(cfg.get("timeout", 120)),
+                                  excluded_nodes={control_node} if control_node else set())
         swarm.run(lambda: transport, on_tick=sync)
     except Exception as exc:
         # Failure is explicit; never run confidential remote missions locally.

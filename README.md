@@ -146,21 +146,22 @@ ServerApp is the trusted coordinator; each worker uses a distinct SuperNode.
 Node assignments are retained for the run, and replacements need fresh nodes.
 
 Follow [the SuperGrid setup guide](backend/README.md) to log in, configure the
-HTTPS control bridge and provide at least nine SuperNodes. The guide also
+a dedicated control SuperNode plus nine worker SuperNodes (ten total). The guide also
 explains local development modes and the signed state/command connection.
 
 ```bash
 cd backend
 uv sync
 uv run flwr login supergrid
-# Copy .env.example to .env and set the public HTTPS bridge URL.
-uv run uvicorn main:app --port 8000
+# Copy .env.example to .env and set CONSTELLATION_CONTROL_NODE_ID.
+# Start the dedicated control SuperNode as described in backend/README.md.
+uv run uvicorn main:app --host 127.0.0.1 --port 8011
 ```
 
 ```bash
 cd frontend
 npm ci
-npm run dev
+VITE_API_TARGET=http://127.0.0.1:8011 npm run dev
 ```
 
 Open `http://localhost:5173/` for the API-backed application. Use `?mode=mock`

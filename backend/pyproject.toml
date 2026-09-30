@@ -48,3 +48,6 @@ bridge-url = ""
 mission-id = ""
 min-nodes = 9
 control-ttl = 900
+
+# Dedicated trusted relay, excluded from worker allocation.
+control-node-id = ""

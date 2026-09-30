@@ -22,6 +22,7 @@ def bridge(monkeypatch):
     supergrid.sessions.clear()
     monkeypatch.setattr(main, 'FORCE_FALLBACK', False)
     monkeypatch.setenv('CONSTELLATION_RUNTIME', 'supergrid')
+    monkeypatch.delenv('CONSTELLATION_CONTROL_NODE_ID', raising=False)
     mission = store.add_mission(Mission(id='m-test', prompt='PRIVATE MISSION', runtime='supergrid'))
     signer = SignedBridge('https://bridge.example', mission.id, '123')
     session = Session(mission.id, public_key=signer.key.public_key(), run_id='123')
@@ -168,7 +169,8 @@ def test_only_https_bridge_allowed():
             validate_bridge_url(url)
 
 
-def test_entire_remote_coordinator_lifecycle(bridge, monkeypatch):
+@pytest.mark.parametrize("native", [False, True])
+def test_entire_remote_coordinator_lifecycle(bridge, monkeypatch, native):
     """Signed HTTP bridge + coordinator + Flower messages; simulated grid only."""
     from services.remote_coordinator import run_remote
     from services.flower_app import run_task
@@ -182,6 +184,10 @@ def test_entire_remote_coordinator_lifecycle(bridge, monkeypatch):
     submitted = []
 
     class ExecutingGrid(Grid):
+        def send_and_receive(self, messages, timeout):
+            from services.control_bridge import relay_control
+            return [relay_control(m, SimpleNamespace(node_config={'constellation-control': True})) for m in messages]
+
         def push_messages(self, messages):
             ids = super().push_messages(messages)
             for message in messages:
@@ -198,13 +204,26 @@ def test_entire_remote_coordinator_lifecycle(bridge, monkeypatch):
         return response.json()
 
     monkeypatch.setattr(SignedBridge, 'announce', announce)
-    monkeypatch.setattr(SignedBridge, 'post', post)
+    if native:
+        class Response(io.BytesIO):
+            def __init__(self, body, status):
+                super().__init__(body)
+                self.status = status
+        def open_local(req, timeout):
+            from urllib.parse import urlsplit
+            resp = client.post(urlsplit(req.full_url).path, content=req.data, headers=dict(req.header_items()))
+            return Response(resp.content, resp.status_code)
+        monkeypatch.setattr('services.control_bridge.request.build_opener', lambda *args: SimpleNamespace(open=open_local))
+    else:
+        monkeypatch.setattr(SignedBridge, 'post', post)
     context = SimpleNamespace(run_id=123, run_config={'bridge-url': 'https://bridge.example',
                               'mission-id': mission.id, 'min-nodes': 9, 'timeout': 2, 'control-ttl': 10})
+    if native:
+        context.run_config['control-node-id'] = '10'
     failures = []
     def run():
         try:
-            run_remote(ExecutingGrid(9), context)
+            run_remote(ExecutingGrid(10 if native else 9), context)
         except Exception as exc:
             failures.append(exc)
     thread = threading.Thread(target=run, daemon=True)
@@ -224,6 +243,8 @@ def test_entire_remote_coordinator_lifecycle(bridge, monkeypatch):
     workers = store.mission_workers(mission.id)
     assert len(workers) == 9
     assert len({w.node_id for w in workers}) == 9
+    if native:
+        assert '10' not in {w.node_id for w in workers}
     assert store.workers[target].quarantined
     assert store.workers[target].output is None
     assert 'Coverage: 8/8' in mission.result

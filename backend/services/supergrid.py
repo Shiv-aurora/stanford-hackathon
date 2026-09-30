@@ -66,7 +66,13 @@ class SuperGrid:
         federation = os.environ.get("CONSTELLATION_FEDERATION", "@qxh2001/security")
         if not re.fullmatch(r"@[\w.-]+/[\w.-]+", federation):
             raise ValueError("CONSTELLATION_FEDERATION must be @account/federation")
-        bridge = validate_bridge_url(os.environ.get("CONSTELLATION_BRIDGE_URL", ""))
+        control_node = os.environ.get("CONSTELLATION_CONTROL_NODE_ID", "")
+        if control_node:
+            if not control_node.isdigit() or not 0 < int(control_node) < 2**64:
+                raise ValueError("CONSTELLATION_CONTROL_NODE_ID must be a valid SuperNode ID")
+            bridge = ""
+        else:
+            bridge = validate_bridge_url(os.environ.get("CONSTELLATION_BRIDGE_URL", ""))
         cli = shutil.which("flwr")
         if not cli:
             raise ValueError("Flower CLI not found; launch the backend using uv run")
@@ -100,6 +106,8 @@ class SuperGrid:
             # Keep the config outside the FAB. It contains identifiers only:
             # no prompt, API credentials, model keys, or signing secrets.
             config = {"bridge-url": bridge, "mission-id": mission_id,
+                      "control-node-id": os.environ.get("CONSTELLATION_CONTROL_NODE_ID", ""),
+                      "timeout": int(os.environ.get("CONSTELLATION_WORKER_TIMEOUT", "300")),
                       "min-nodes": int(os.environ.get("CONSTELLATION_FLOWER_NODES", "9")),
                       "control-ttl": int(os.environ.get("CONSTELLATION_CONTROL_TTL", "900"))}
             with tempfile.NamedTemporaryFile(mode="w", suffix=".toml") as file:
@@ -120,7 +128,7 @@ class SuperGrid:
             started = time.monotonic()
             while not session.closed:
                 elapsed = time.monotonic() - (session.last_contact if session.connected else started)
-                if elapsed > (90 if session.connected else 240):
+                if elapsed > (90 if session.connected else 600):
                     raise RuntimeError(session.connection_error or
                                        "SuperGrid coordinator is unreachable; check the run logs and public bridge URL")
                 if logs.poll() is not None:

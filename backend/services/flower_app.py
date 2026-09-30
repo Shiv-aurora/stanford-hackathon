@@ -27,6 +27,8 @@ client_app = ClientApp()
 @client_app.query()
 def run_task(msg: Message, context: Context) -> Message:
     """Run one worker task. The message carries only this worker's slice."""
+    if context is not None and context.node_config.get('constellation-control'):
+        raise ValueError('Control SuperNode cannot execute worker tasks')
     task = msg.content["task"]
     payload = {
         "id": task["id"],
@@ -42,6 +44,12 @@ def run_task(msg: Message, context: Context) -> Message:
         {"result": ConfigRecord({"worker_id": payload["id"], "output": output, "source": source})}
     )
     return Message(reply, reply_to=msg)
+
+
+@client_app.query('control')
+def control_task(msg: Message, context: Context) -> Message:
+    from services.control_bridge import relay_control
+    return relay_control(msg, context)
 
 
 def dispatch(
@@ -86,12 +94,12 @@ class GridTransport:
 
     runtime = "flower"
 
-    def __init__(self, grid: Grid, num_nodes: int | None, timeout: float) -> None:
+    def __init__(self, grid: Grid, num_nodes: int | None, timeout: float, excluded_nodes: set[int] | None = None) -> None:
         """Wait for `num_nodes` SuperNodes (None: until the count stops changing)."""
         deadline = time.time() + timeout
         seen, stable_since = -1, time.time()
         while True:
-            node_ids = sorted(grid.get_node_ids())
+            node_ids = sorted(set(grid.get_node_ids()) - (excluded_nodes or set()))
             if len(node_ids) != seen:
                 seen, stable_since = len(node_ids), time.time()
             if num_nodes is not None and seen >= num_nodes:
@@ -210,7 +218,7 @@ def main(grid: Grid, context: Context) -> None:
     from services.swarm import Swarm
 
     cfg = context.run_config
-    if cfg.get("bridge-url"):
+    if cfg.get("bridge-url") or cfg.get("control-node-id"):
         from services.remote_coordinator import run_remote
         run_remote(grid, context)
         return

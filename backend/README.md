@@ -8,11 +8,12 @@ reserved for the whole run, even after its task finishes. Replacements use
 fresh nodes; there is no least-loaded reuse or local fallback in SuperGrid mode.
 
 ```text
-Browser → FastAPI control plane → SuperGrid / ServerApp
-                                      ↓       ↓       ↓
-                                SuperNode  SuperNode  SuperNode
-                                ClientApp  ClientApp  ClientApp
-                                Worker A   Worker B   Worker C
+                   SuperGrid / ServerApp
+                    ├─ Worker SuperNode A / ClientApp
+                    ├─ Worker SuperNode B / ClientApp
+                    ├─ Replacement SuperNode / ClientApp
+                    └─ Trusted control SuperNode / ClientApp
+                         └─ Loopback FastAPI ↔ Browser
 ```
 
 ## Configure and run
@@ -26,43 +27,45 @@ uv run flwr federation list supergrid --federation @qxh2001/security
 cp .env.example .env
 ```
 
-Set `CONSTELLATION_BRIDGE_URL` in `.env` to the public HTTPS origin that routes
-`/internal/supergrid/*` to this backend. SuperGrid's ServerApp needs outbound
-HTTPS access to that address. Keep the ordinary mission/worker endpoints on a
-trusted local or authenticated network; they are not a production auth system.
-For example, an HTTPS reverse proxy can expose only the callback paths:
+Set `CONSTELLATION_CONTROL_NODE_ID` to a dedicated, trusted SuperNode in this
+federation. The coordinator uses Flower `query.control` messages to exchange
+signed requests with this node; its ClientApp relays them only to the loopback
+API. No public HTTPS endpoint, tunnel or inbound port is required.
 
-```caddyfile
-bridge.example.com {
-    handle /internal/supergrid/* {
-        reverse_proxy 127.0.0.1:8000
-    }
-    respond 404
-}
-```
-
-The federation must contain **at least 9 SuperNodes** for the eight-worker
-research demo and one replacement. More attacks need more fresh nodes. The
-`CONSTELLATION_FLOWER_NODES` setting is a minimum required capacity; it does not
-provision nodes or change the federation. Either a SuperGrid simulation
-federation or a deployment federation can be used. Register and connect real
-SuperNodes separately for a deployment federation.
+Start that control node alongside the local backend (after registering its own
+key and adding it to the federation):
 
 ```bash
-uv run uvicorn main:app --host 127.0.0.1 --port 8000
+uv run flower-supernode --superlink fleet-supergrid.flower.ai:443 \
+  --auth-supernode-private-key /absolute/path/to/control-node-private-key \
+  --host 127.0.0.1 --port 9110 --allow-runtime-dependency-installation \
+  --node-config 'constellation-control=true constellation-api="http://127.0.0.1:8011"'
+uv run uvicorn main:app --host 127.0.0.1 --port 8011
 ```
 
-Run exactly one backend process, without auto-reload: mission state and control
-sessions are in memory. In another terminal, from `frontend/`:
+Only the trusted control node gets `constellation-control=true`. It can see the
+whole mission and must be isolated from untrusted worker operators. It refuses
+worker tasks and is excluded from all worker allocation and capacity counts.
+Worker nodes reject control requests. Signature, timestamp and replay checks
+still run on the API; no credentials or full mission are placed in run-config.
+
+The research demo requires **10 registered SuperNodes**: one control node, eight
+original workers and one fresh replacement. `CONSTELLATION_FLOWER_NODES=9`
+counts only worker capacity. More replacements need more fresh worker nodes.
+
+Run one backend process without auto-reload; control sessions are in memory.
+From `frontend/`, run `npm ci` then:
 
 ```bash
-npm ci
-npm run dev
+VITE_API_TARGET=http://127.0.0.1:8011 npm run dev
 ```
 
-Open `http://localhost:5173/`. API mode is the default. The UI shows the remote
-run ID, federation and actual SuperNode IDs. Use `?mode=mock` only for the
-standalone visual preview.
+API mode is the default. The UI shows the run ID and actual worker SuperNode IDs.
+An existing mission can be opened with `?mission=m-...`. Use `?mode=mock` only
+for the standalone visual preview.
+
+The optional HTTPS transport remains available when `CONSTELLATION_CONTROL_NODE_ID`
+is empty and `CONSTELLATION_BRIDGE_URL` is set; its setup follows below.
 
 ## Local-only callback proxy
 

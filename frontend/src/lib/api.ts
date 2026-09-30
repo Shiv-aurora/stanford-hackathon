@@ -206,7 +206,10 @@ export class ApiMission implements MissionActions {
 
   constructor() {
     try {
-      const saved = JSON.parse(sessionStorage.getItem(STORE_KEY) || 'null');
+      const linked = new URLSearchParams(window.location.search).get('mission');
+      const saved = linked && /^m-[a-zA-Z0-9_-]+$/.test(linked)
+        ? { id: linked, createdAt: Date.now() }
+        : JSON.parse(sessionStorage.getItem(STORE_KEY) || 'null');
       if (saved && typeof saved.id === 'string') {
         this.missionId = saved.id;
         this.createdAt = saved.createdAt || Date.now();
