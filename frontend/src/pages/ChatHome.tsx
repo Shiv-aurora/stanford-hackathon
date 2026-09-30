@@ -5,6 +5,7 @@ import { CoordinatorChat, Segmented } from '../components/Chat';
 import { CODE_DEMO, labOf, type ChatMode, type Lab } from '../lib/labs';
 import { SplitGraph } from '../components/SplitGraph';
 import type { MissionActions, MissionView } from '../lib/types';
+import { AGENT_LOGOS } from '../components/agentLogos';
 
 // Home screen: talk to the coordinator, and watch how the mission is split.
 
@@ -23,54 +24,47 @@ const card: CSSProperties = {
 };
 const cardHead: CSSProperties = { height: 52, flexShrink: 0, boxSizing: 'border-box', padding: '0 16px', display: 'flex', alignItems: 'center', gap: 12 };
 
-const AGENTS: { id: string; name: string; badge: string; bg: string }[] = [
-  { id: 'codex', name: 'Codex', badge: 'Cx', bg: '#ECECEC' },
-  { id: 'claude', name: 'Claude Code', badge: 'Cl', bg: '#D97757' },
-  { id: 'cursor', name: 'Cursor', badge: 'Cu', bg: '#ECECEC' },
-  { id: 'opencode', name: 'OpenCode', badge: 'Oc', bg: '#ECECEC' },
+const AGENTS: { id: string; name: string }[] = [
+  { id: 'codex', name: 'Codex' },
+  { id: 'claude', name: 'Claude Code' },
+  { id: 'cursor', name: 'Cursor' },
+  { id: 'opencode', name: 'OpenCode' },
 ];
 
 /** Agents that can run as isolated workers (UI only for now). */
 function ConnectAgents() {
-  const [on, setOn] = useState<Record<string, boolean>>({});
+  const [off, setOff] = useState<Record<string, boolean>>({});
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingBottom: 32 }}>
-      <span style={{ fontSize: 12, fontWeight: 500, color: '#8E8E8E' }}>Connect agents</span>
+      <span style={{ fontSize: 12, fontWeight: 500, color: '#8E8E8E' }}>Agents</span>
       <div style={{ ...card, background: '#111113', borderColor: '#26262A' }}>
         {AGENTS.map((a, i) => {
-          const connected = !!on[a.id];
+          const connected = !off[a.id];
           return (
             <div
               key={a.id}
               style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', borderTop: i ? '1px solid #1F1F23' : 'none' }}
             >
-              <span
-                style={{
-                  width: 28,
-                  height: 28,
-                  flexShrink: 0,
-                  borderRadius: 8,
-                  background: a.bg,
-                  color: '#0D0D0D',
-                  fontSize: 11,
-                  fontWeight: 700,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                {a.badge}
-              </span>
+              <svg
+                aria-hidden="true"
+                width={28}
+                height={28}
+                viewBox="0 0 24 24"
+                fill="#ECECEC"
+                fillRule="evenodd"
+                style={{ flexShrink: 0 }}
+                dangerouslySetInnerHTML={{ __html: AGENT_LOGOS[a.id] }}
+              />
               <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flexGrow: 1 }}>
-                <span style={{ fontSize: 15, fontWeight: 500 }}>Connect {a.name}</span>
-                <span style={{ fontSize: 13, color: '#8E8E8E' }}>{connected ? 'Connected · runs as an isolated worker' : 'Not connected'}</span>
+                <span style={{ fontSize: 15, fontWeight: 500 }}>{a.name}</span>
+                <span style={{ fontSize: 13, color: '#8E8E8E' }}>{connected ? 'Connected' : 'Disabled'}</span>
               </div>
               <button
                 type="button"
                 role="switch"
                 aria-checked={connected}
-                aria-label={`Connect ${a.name}`}
-                onClick={() => setOn((m) => ({ ...m, [a.id]: !m[a.id] }))}
+                aria-label={a.name}
+                onClick={() => setOff((m) => ({ ...m, [a.id]: !m[a.id] }))}
                 style={{
                   width: 44,
                   height: 26,
@@ -95,10 +89,20 @@ function ConnectAgents() {
 }
 
 /** Empty chat: type or paste anything, or start one of the demo scenarios. */
-function EmptyChat({ lab, onStart }: { lab: Lab; onStart: (prompt: string, mode: ChatMode) => void }) {
+function EmptyChat({
+  lab,
+  models,
+  onStart,
+}: {
+  lab: Lab;
+  models: { id: string; label: string }[];
+  onStart: (prompt: string, mode: ChatMode, model: string) => void;
+}) {
   const [mode, setMode] = useState<ChatMode>('chat');
   const [text, setText] = useState('');
-  const send = () => text.trim() && onStart(text.trim(), mode);
+  const [model, setModel] = useState('');
+  const chosen = model || models[0]?.id || '';
+  const send = () => text.trim() && onStart(text.trim(), mode, chosen);
   const demos: { n: string; title: string; body: string; prompt: string; mode: ChatMode; tone: string }[] = [
     {
       n: '1',
@@ -165,6 +169,30 @@ function EmptyChat({ lab, onStart }: { lab: Lab; onStart: (prompt: string, mode:
               ]}
               onChange={setMode}
             />
+            {models.length > 0 && (
+              <select
+                aria-label="Model"
+                value={chosen}
+                onChange={(e) => setModel(e.target.value)}
+                style={{
+                  height: 34,
+                  padding: '0 10px',
+                  borderRadius: 10,
+                  border: '1px solid #26262A',
+                  background: '#1F1F23',
+                  color: '#ECECEC',
+                  fontSize: 13,
+                  fontFamily: 'inherit',
+                  cursor: 'pointer',
+                }}
+              >
+                {models.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+            )}
             <span style={{ fontSize: 12, color: '#8E8E8E' }}>
               {mode === 'code' ? 'Split by function: each agent sees one piece of the code.' : `Split by topic for the ${lab.name}.`}
             </span>
@@ -179,7 +207,7 @@ function EmptyChat({ lab, onStart }: { lab: Lab; onStart: (prompt: string, mode:
             <button
               key={d.n}
               type="button"
-              onClick={() => onStart(d.prompt, d.mode)}
+              onClick={() => onStart(d.prompt, d.mode, chosen)}
               style={{
                 ...card,
                 padding: 16,
@@ -267,7 +295,7 @@ export function ChatHome({
     >
       <main style={{ flexGrow: 1, minHeight: 0, boxSizing: 'border-box', padding: '24px 32px', display: 'flex', flexDirection: 'column', gap: 18 }}>
         {empty ? (
-          <EmptyChat lab={labOf(view.lab)} onStart={(prompt, mode) => actions.createMission(prompt, mode)} />
+          <EmptyChat lab={labOf(view.lab)} models={view.models} onStart={(prompt, mode, model) => actions.createMission(prompt, mode, model)} />
         ) : (
         <>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -283,6 +311,11 @@ export function ChatHome({
           <section aria-label="Coordinator chat" style={{ ...card, flexGrow: 1, minWidth: 0 }}>
             <div style={cardHead}>
               <span style={{ fontSize: 15, fontWeight: 600 }}>Coordinator</span>
+              {view.models.length > 0 && (
+                <span style={{ fontSize: 12, fontWeight: 500, padding: '3px 9px', borderRadius: 999, color: '#D4D4D4', background: '#1F1F23', border: '1px solid #2A2A2E' }}>
+                  Workers on {view.models.find((m) => m.id === view.model)?.label ?? view.models[0].label}
+                </span>
+              )}
               <span style={{ marginLeft: 'auto', fontSize: 13, color: '#8E8E8E' }}>Only the coordinator ever sees the whole mission</span>
             </div>
             {banner && (

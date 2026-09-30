@@ -69,6 +69,7 @@ export interface BackendMission {
   created_at?: number | null;
   lab?: string;
   mode?: string;
+  model?: string;
 }
 
 export interface BackendResult {
@@ -113,7 +114,9 @@ async function http<T>(method: 'GET' | 'POST', path: string, body?: unknown): Pr
 export const api = {
   health: () => http<{ status: string }>('GET', '/health'),
   listMissions: (lab: LabId) => http<BackendMission[]>('GET', `/missions?lab=${lab}`),
-  createMission: (prompt: string, lab: LabId, mode: ChatMode) => http<BackendMission>('POST', '/mission', { prompt, lab, mode }),
+  createMission: (prompt: string, lab: LabId, mode: ChatMode, model: string) =>
+    http<BackendMission>('POST', '/mission', { prompt, lab, mode, model }),
+  listModels: () => http<{ id: string; label: string }[]>('GET', '/models'),
   getMission: (id: string) => http<BackendMission>('GET', `/mission/${encodeURIComponent(id)}`),
   getWorkers: (id: string) => http<BackendWorker[]>('GET', `/mission/${encodeURIComponent(id)}/workers`),
   attackWorker: (workerId: string) => http<AttackResponse>('POST', `/workers/${encodeURIComponent(workerId)}/attack`),
@@ -241,6 +244,8 @@ function emptyView(prompt: string, error: string | null, lab: LabId): MissionVie
     chat: [],
     chatBlocked: error ? 'Connecting to the coordinator…' : null,
     transcript: null,
+    models: [],
+    model: '',
   };
 }
 
@@ -279,6 +284,7 @@ export class ApiMission implements MissionActions {
   private creating = false;
   /** Showing an empty chat: the next message starts a new mission. */
   private drafting = false;
+  private models: { id: string; label: string }[] = [];
   /** Client-side timing so progress bars and the containment steps animate. */
   private runningSince = new Map<string, number>();
   private attackedAt = new Map<string, number>();
@@ -434,13 +440,13 @@ export class ApiMission implements MissionActions {
       .catch((e: unknown) => this.fail(e));
   };
 
-  createMission = (prompt: string, mode: ChatMode = 'chat') => {
+  createMission = (prompt: string, mode: ChatMode = 'chat', model = '') => {
     const lab = this.lab;
     this.prompt = prompt.trim() || labOf(lab).demoPrompt;
     this.creating = true;
     this.drafting = false;
     api
-      .createMission(this.prompt, lab, mode)
+      .createMission(this.prompt, lab, mode, model)
       .then((m) => {
         this.creating = false;
         if (lab !== this.lab) return; // switched labs meanwhile; it shows up in that lab's list
@@ -507,6 +513,7 @@ export class ApiMission implements MissionActions {
     this.busy = true;
     try {
       const lab = this.lab;
+      if (!this.models.length) this.models = await api.listModels().catch(() => []);
       const list = await api.listMissions(lab);
       if (lab !== this.lab) return; // switched labs while the list was loading
       this.missionList = list;
@@ -593,7 +600,7 @@ export class ApiMission implements MissionActions {
 
   private compute(): MissionView {
     const m = this.mission;
-    if (!m) return emptyView(this.prompt, this.error, this.lab);
+    if (!m) return { ...emptyView(this.prompt, this.error, this.lab), models: this.models };
     const listed = this.missionList.some((x) => x.id === m.id) ? this.missionList : [...this.missionList, m];
     const missions: MissionSummary[] = listed
       .map((x, i) => ({ id: x.id, name: codeName(this.lab, i), status: x.id === m.id ? m.status : x.status }))
@@ -707,6 +714,8 @@ export class ApiMission implements MissionActions {
               ? 'The mission failed.'
               : 'Follow-ups open once the mission completes.',
       transcript: this.watched ? { key: this.watched, entries: this.transcript.map(toEntry) } : null,
+      models: this.models,
+      model: m.model ?? '',
     };
   }
 }

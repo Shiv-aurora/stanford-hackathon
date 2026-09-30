@@ -100,13 +100,29 @@ def _seeded_output(payload: Mapping[str, Any]) -> str:
     )
 
 
-def _model_config() -> tuple[str, str, str] | None:
+def _model_config(requested: str | None = None) -> tuple[str, str, str] | None:
+    """(endpoint, model, key) for `requested` (a model id), else the default model."""
     endpoint = os.environ.get("FLWR_MODEL_API_ENDPOINT")
     model = os.environ.get("FLWR_MODEL_ID")
     key = os.environ.get("FLWR_MODEL_API_KEY")
+    alt, alt_key = os.environ.get("FLWR_MODEL_ALT_ID"), os.environ.get("FLWR_MODEL_ALT_API_KEY")
+    if requested and requested == alt and alt_key:
+        model, key = alt, alt_key
     if endpoint and model and key:
         return endpoint, model, key
     return None
+
+
+def available_models() -> list[dict[str, str]]:
+    """Models the UI can offer: the default first."""
+    out = []
+    for id_var, key_var in (("FLWR_MODEL_ID", "FLWR_MODEL_API_KEY"), ("FLWR_MODEL_ALT_ID", "FLWR_MODEL_ALT_API_KEY")):
+        model = os.environ.get(id_var)
+        if model and os.environ.get(key_var) and os.environ.get("FLWR_MODEL_API_ENDPOINT"):
+            label = model.rsplit("/", 1)[-1]
+            label = label.rsplit("-", 1)[0] if label.count("-") > 1 else label
+            out.append({"id": model, "label": label})
+    return out
 
 
 def _extract_text(data: Mapping[str, Any]) -> str:
@@ -165,7 +181,7 @@ def execute_task(payload: Mapping[str, Any]) -> tuple[str, str]:
     """
     if payload.get("fail"):
         raise RuntimeError(f"worker {payload['id']} failed (simulated)")
-    config = _model_config()
+    config = _model_config(payload.get("model") or None)
     if config is not None:
         try:
             return _call_model(payload, config), "model"
@@ -207,6 +223,8 @@ def _payload(spec: Any, index: int) -> dict[str, Any]:
         "fail": bool(_get(spec, "fail", False)),
         # Follow-up question for a worker that already finished its task.
         "message": str(_get(spec, "message") or ""),
+        # Model the operator picked for this chat ("" = default).
+        "model": str(_get(spec, "model") or ""),
     }
 
 

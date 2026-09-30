@@ -36,6 +36,7 @@ def run_task(msg: Message, context: Context) -> Message:
         "network_identity": task["network_identity"],
         "fail": bool(task["fail"]),
         "message": str(task["message"]) if "message" in task else "",
+        "model": str(task["model"]) if "model" in task else "",
     }
     output, source = execute_task(payload)
     reply = RecordDict(

@@ -142,6 +142,10 @@ export interface MissionView {
   chat: ChatMessage[];
   /** Why a follow-up can't be sent right now; null when it can. */
   chatBlocked: string | null;
+  /** Models the workers can run on (api mode); empty in mock mode. */
+  models: { id: string; label: string }[];
+  /** Model this chat's workers use ('' = default). */
+  model: string;
   /** Conversation of the worker being watched (see watchWorker). */
   transcript: { key: string; entries: TranscriptEntry[] } | null;
   /** Whether the lab can be switched (api mode only; mock replays the AI Lab demo). */
@@ -154,7 +158,7 @@ export interface MissionActions {
   /** Restart the demo with the same prompt. */
   reset(): void;
   approve(): void;
-  createMission(prompt: string, mode?: ChatMode): void;
+  createMission(prompt: string, mode?: ChatMode, model?: string): void;
   /** Open an empty chat (the next message starts a new mission). */
   newChat(): void;
   /** Open another mission from the sidebar. */

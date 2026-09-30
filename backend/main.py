@@ -279,6 +279,8 @@ def _execution_spec(worker: Worker) -> Dict[str, Any]:
     # `context` is intentionally excluded from API serialization, so add the
     # worker's own private fragment explicitly for execution.
     spec["context"] = dict(worker.context)
+    mission = store.missions.get(worker.mission_id)
+    spec["model"] = mission.model if mission else ""
     return spec
 
 
@@ -295,6 +297,16 @@ def _execute(worker_ids: List[str]) -> None:
     except Exception as exc:  # keep the demo alive; surface as failed workers
         for spec in specs:
             _apply_update({"worker_id": spec["id"], "status": "failed", "error": str(exc)})
+
+
+@app.get("/models")
+def list_models() -> List[Dict[str, str]]:
+    """Models offered in the chat's model selector (from backend/.env)."""
+    try:
+        from services.flower_runtime import available_models
+    except ImportError:
+        return []
+    return available_models()
 
 
 @app.get("/health")
@@ -362,7 +374,7 @@ def _await(future: Any) -> Any:
 @app.post("/mission", response_model=Mission)
 def create_mission(body: MissionCreate, background: BackgroundTasks) -> Mission:
     mission = store.add_mission(
-        Mission(id=f"m-{uuid.uuid4().hex[:8]}", prompt=body.prompt, created_at=time.time(), lab=body.lab, mode=body.mode)
+        Mission(id=f"m-{uuid.uuid4().hex[:8]}", prompt=body.prompt, created_at=time.time(), lab=body.lab, mode=body.mode, model=body.model)
     )
     now = time.time()
     mission.chat = [

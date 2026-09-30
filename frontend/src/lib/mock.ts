@@ -525,6 +525,8 @@ export class MockMission implements MissionActions {
           ? null
           : 'Follow-ups open once the mission completes.',
       transcript: this.watched ? { key: this.watched, entries: this.transcriptOf(this.watched, allWorkers) } : null,
+      models: [],
+      model: '',
     };
   }
 }
