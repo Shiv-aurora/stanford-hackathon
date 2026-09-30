@@ -72,6 +72,8 @@ calculate_metrics = _load("services.coordinator", "metrics", demo_seed.metrics)
 # Coordinator-side injection check on what each worker processed.
 detect_injection = _load("services.security", "detect_injection", lambda text: [])
 log = logging.getLogger("constellation")
+# The coordinator's final answer from the valid findings (None = show findings only).
+write_final_answer = _load("services.flower_runtime", "write_final_answer", lambda request, findings, model=None: None)
 # Need-to-know routing for follow-up questions; the fallback asks every worker.
 route_question = _load("services.decomposer", "route_question", lambda question, domain=None: set())
 # Trusted coordinator service: runs decompose -> workers -> attack handling ->
@@ -128,11 +130,40 @@ def _refresh_mission(mission_id: str, synthesize_now: bool = True) -> None:
             if any(w.status == WorkerStatus.COMPLETE for w in active):
                 mission.status = MissionStatus.COMPLETE
                 mission.result = synthesize(workers)
+                _start_answer(mission)
             else:
                 mission.status = MissionStatus.FAILED
         else:
             mission.status = MissionStatus.RUNNING
             mission.result = None
+            mission.answer = None
+            mission.answer_status = "none"
+
+
+def _valid_findings(workers: List[Worker]) -> List[tuple]:
+    return [
+        (w.role, w.output) for w in workers
+        if w.status == WorkerStatus.COMPLETE and not w.tainted and not w.quarantined and w.output
+    ]
+
+
+def _start_answer(mission: Mission) -> None:
+    """Have the coordinator write the final answer in the background (never blocks the swarm loop)."""
+    if mission.answer_status in ("writing", "done"):
+        return
+    mission.answer_status = "writing"
+    request = _sanitize(mission.prompt)  # injected instructions never reach the writer
+    findings = _valid_findings(store.mission_workers(mission.id))
+
+    def run() -> None:
+        answer = write_final_answer(request, findings, mission.model or None)
+        with store.lock:
+            if mission.answer_status != "writing" or mission.result is None:
+                return  # re-opened meanwhile (e.g. an attack); a new answer follows
+            mission.answer = answer
+            mission.answer_status = "done" if answer else "failed"
+
+    threading.Thread(target=run, name=f"answer-{mission.id}", daemon=True).start()
 
 
 def _log(worker: Worker, kind: str, text: str, **extra: Any) -> None:
@@ -223,8 +254,31 @@ def _finish_reply(worker: Worker, output: Optional[str], error: Optional[str] = 
             continue
         msg["replies"][worker.id] = output
         if len(msg["replies"]) >= len(msg["routed_to"]):
-            msg["text"] = _compose_answer(msg, mission)
+            _write_followup_answer(msg, mission)
+
+
+def _write_followup_answer(msg: Dict[str, Any], mission: Mission) -> None:
+    """Show the routed replies, then replace them with the coordinator's written answer."""
+    details = _compose_answer(msg, mission)
+    findings = []
+    for worker_id in msg["routed_to"]:
+        w = store.get_worker(worker_id)
+        if msg["replies"].get(worker_id):
+            findings.append((w.role if w else worker_id, msg["replies"][worker_id]))
+    msg["writing"] = True
+
+    def run() -> None:
+        answer = write_final_answer(msg.get("question", ""), findings, mission.model or None)
+        with store.lock:
+            msg["text"] = answer or details
+            msg["details"] = details if answer else None
+            msg["writing"] = False
             msg["pending"] = False
+
+    if write_final_answer is None:
+        run()
+    else:
+        threading.Thread(target=run, name=f"answer-{msg['id']}", daemon=True).start()
 
 
 def _compose_answer(msg: Dict[str, Any], mission: Mission) -> str:
@@ -537,16 +591,21 @@ def _chat_view(mission: Mission, msg: Dict[str, Any]) -> ChatMessage:
     if msg.get("kind") == "mission":
         # The first coordinator reply mirrors the mission synthesis.
         finished = mission.status in (MissionStatus.COMPLETE, MissionStatus.APPROVED)
-        text = mission.result if finished else None
+        writing = finished and mission.answer_status == "writing"
+        # The written answer, with the per-worker findings behind it; without a
+        # model, the findings themselves are the answer.
+        text = (mission.answer or mission.result) if finished and not writing else None
+        details = mission.result if finished and mission.answer else None
         if mission.status == MissionStatus.FAILED:
             text = "The mission failed: no worker returned a valid output."
         workers = [w for w in store.mission_workers(mission.id) if not w.quarantined]
         return ChatMessage(
-            id=msg["id"], role="coordinator", text=text, pending=text is None,
-            routed_to=[w.id for w in workers], at=msg["at"],
+            id=msg["id"], role="coordinator", text=text, details=details, writing=writing,
+            pending=text is None, routed_to=[w.id for w in workers], at=msg["at"],
         )
     return ChatMessage(
         id=msg["id"], role=msg["role"], kind=msg.get("kind", "text"), text=msg.get("text"), pending=bool(msg.get("pending")),
+        details=msg.get("details"), writing=bool(msg.get("writing")),
         routed_to=list(msg.get("routed_to", [])), categories=list(msg.get("categories", [])), at=msg["at"],
     )
 
@@ -581,6 +640,7 @@ def post_message(mission_id: str, body: MessageCreate, background: BackgroundTas
         answer = {
             "id": f"c-{uuid.uuid4().hex[:8]}", "role": "coordinator", "text": None, "pending": True,
             "routed_to": [w.id for w in routed], "categories": categories, "replies": {}, "at": now,
+            "question": body.text,
         }
         mission.chat += [question, answer]
         specs = [_ask(w, body.text, answer["id"], "coordinator") for w in routed]

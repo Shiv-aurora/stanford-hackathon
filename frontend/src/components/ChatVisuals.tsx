@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
+import { Fragment, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { K, MONO, STY } from '../lib/theme';
 import type { ChatMessage, MissionView, WorkerView } from '../lib/types';
 
@@ -78,7 +78,7 @@ function Step({ state, label, detail }: { state: 'done' | 'active' | 'todo' | 'a
 }
 
 /** Live view of what the coordinator is doing with the mission. */
-export function Pipeline({ view }: { view: MissionView }) {
+export function Pipeline({ view, writing }: { view: MissionView; writing: boolean }) {
   const originals = view.allWorkers.filter((w) => !w.replacementFor);
   const n = originals.length;
   const rows = view.workers;
@@ -111,9 +111,9 @@ export function Pipeline({ view }: { view: MissionView }) {
         detail={blocked ? (containing ? 'containing…' : 'contained') : complete ? 'clean' : undefined}
       />
       <Step
-        state={complete ? 'done' : 'todo'}
-        label="Answer assembled from valid outputs only"
-        detail={complete && view.durationMs ? `${(view.durationMs / 1000).toFixed(1)}s` : undefined}
+        state={!complete ? 'todo' : writing ? 'active' : 'done'}
+        label={writing ? 'Coordinator writing the final answer…' : 'Final answer from valid outputs only'}
+        detail={complete && !writing && view.durationMs ? `${(view.durationMs / 1000).toFixed(1)}s` : undefined}
       />
     </div>
   );
@@ -298,6 +298,46 @@ export function SecurityAlert({ msg, view, onOpenWorker }: { msg: ChatMessage; v
       <span style={{ fontSize: 12.5, color: '#A1A1AA' }}>
         It could only ever reach {badW ? `${badW.share}%` : 'its slice'} of the mission. It never saw the other compartments, so it had nothing else to leak.
       </span>
+    </div>
+  );
+}
+
+/** The coordinator's final answer, with the findings behind it one click away. */
+export function FinalAnswer({ text, details, view, onOpenWorker }: { text: string; details: string | null; view: MissionView; onOpenWorker: (key: string) => void }) {
+  const [open, setOpen] = useState(false);
+  if (!details) return <AnswerCards text={text} view={view} onOpenWorker={onOpenWorker} />;
+  const n = details.split('\n').filter((l) => l.startsWith('- ')).length;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, whiteSpace: 'normal' }}>
+      <div
+        style={{
+          padding: '14px 16px',
+          borderRadius: 12,
+          background: 'linear-gradient(180deg, rgba(96,165,250,0.10), rgba(96,165,250,0.03))',
+          border: '1px solid rgba(147,197,253,0.30)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 8,
+        }}
+      >
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: '#93C5FD' }}>
+          Final answer
+          <span style={{ fontWeight: 400, letterSpacing: 0, textTransform: 'none', color: '#8E8E8E' }}>
+            · written by the trusted coordinator from {n} isolated findings
+          </span>
+        </span>
+        <div style={{ fontSize: 14.5, lineHeight: 1.6, color: '#ECECEC' }}>
+          <Rich text={text} />
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        style={{ alignSelf: 'flex-start', padding: 0, border: 'none', background: 'transparent', color: '#93C5FD', fontSize: 12.5, fontWeight: 500 }}
+      >
+        {open ? 'Hide' : 'Show'} what each agent found ({n}) {open ? '▴' : '▾'}
+      </button>
+      {open && <AnswerCards text={details} view={view} onOpenWorker={onOpenWorker} />}
     </div>
   );
 }

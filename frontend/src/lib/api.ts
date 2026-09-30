@@ -42,6 +42,8 @@ export interface BackendChatMessage {
   id: string;
   role: 'user' | 'coordinator';
   kind?: 'text' | 'security';
+  details?: string | null;
+  writing?: boolean;
   text: string | null;
   pending: boolean;
   routed_to: string[];
@@ -702,6 +704,8 @@ export class ApiMission implements MissionActions {
           role: c.role,
           kind: c.kind ?? 'text',
           text: c.text,
+          details: c.details ?? null,
+          writing: !!c.writing,
           pending: c.pending,
           routedTo: c.routed_to.map((key) => ({ key, star: starOf.get(key) ?? key })),
           categories: c.categories,

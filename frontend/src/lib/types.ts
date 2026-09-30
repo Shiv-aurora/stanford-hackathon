@@ -75,6 +75,10 @@ export interface ChatMessage {
   kind: 'text' | 'security';
   /** null while the coordinator is still working on it. */
   text: string | null;
+  /** Per-worker findings behind a written answer ("- role: output" lines). */
+  details: string | null;
+  /** The coordinator is writing the final answer from the findings. */
+  writing: boolean;
   pending: boolean;
   /** Workers the coordinator asked (need-to-know). */
   routedTo: { key: string; star: string }[];

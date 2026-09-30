@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import { LockIcon } from './Icons';
 import { MONO } from '../lib/theme';
 import type { MissionView, TranscriptEntry } from '../lib/types';
-import { AnswerCards, ImpactStrip, Pipeline, SecurityAlert } from './ChatVisuals';
+import { FinalAnswer, ImpactStrip, Pipeline, SecurityAlert } from './ChatVisuals';
 
 // Coordinator chat and worker conversations. Built from the existing pieces:
 // the new-mission textarea, pill buttons, status pills and mono labels.
@@ -172,12 +172,16 @@ export function CoordinatorChat({
           const everyone = m.categories.length === 0;
           return (
             <ReplyCard key={m.id} who={first ? 'Coordinator · answer' : 'Coordinator'} lock>
-              {first && <Pipeline view={view} />}
+              {first && <Pipeline view={view} writing={m.writing} />}
               {m.pending ? (
-                !first && <Pending label={`Waiting for ${m.routedTo.length} ${m.routedTo.length === 1 ? 'worker' : 'workers'} to answer…`} />
+                !first && (
+                  <Pending
+                    label={m.writing ? 'Coordinator writing the answer…' : `Waiting for ${m.routedTo.length} ${m.routedTo.length === 1 ? 'worker' : 'workers'} to answer…`}
+                  />
+                )
               ) : (
                 <>
-                  <AnswerCards text={m.text ?? ''} view={view} onOpenWorker={onOpenWorker} />
+                  <FinalAnswer text={m.text ?? ''} details={m.details} view={view} onOpenWorker={onOpenWorker} />
                   {first && <ImpactStrip view={view} />}
                 </>
               )}

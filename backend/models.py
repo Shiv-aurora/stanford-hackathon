@@ -67,6 +67,10 @@ class Mission(BaseModel):
     mode: str = "chat"
     # Model id the workers use ("" = the default model).
     model: str = ""
+    # The coordinator's final answer, written from the valid findings once the
+    # mission completes. answer_status: none | writing | done | failed.
+    answer: Optional[str] = None
+    answer_status: str = "none"
     # Internal: the coordinator chat (served by /mission/{id}/messages).
     chat: List[Dict[str, Any]] = Field(default_factory=list, exclude=True)
 
@@ -93,6 +97,10 @@ class ChatMessage(BaseModel):
     # "text" | "security" (a blocked attack, shown as an alert)
     kind: str = "text"
     text: Optional[str] = None
+    # Per-worker findings behind the answer ("- role: output" lines).
+    details: Optional[str] = None
+    # The coordinator is writing the final answer from the findings.
+    writing: bool = False
     pending: bool = False
     # Workers the coordinator asked (need-to-know), and the compartments matched.
     routed_to: List[str] = Field(default_factory=list)
