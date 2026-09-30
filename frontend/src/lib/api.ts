@@ -344,9 +344,9 @@ export class ApiMission implements MissionActions {
       try {
         this.mission = await api.getMission(this.missionId);
       } catch (e) {
-        // Backend restarted and lost its in-memory mission: start a fresh one.
+        // A stale tab must not silently submit another cloud run after restart.
         if (e instanceof Error && / 404 /.test(e.message)) {
-          this.missionId = null;
+          this.error = 'This mission is no longer available after the backend restart. Start a new mission.';
           return;
         }
         throw e;
