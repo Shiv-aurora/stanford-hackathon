@@ -23,6 +23,77 @@ const card: CSSProperties = {
 };
 const cardHead: CSSProperties = { height: 52, flexShrink: 0, boxSizing: 'border-box', padding: '0 16px', display: 'flex', alignItems: 'center', gap: 12 };
 
+const AGENTS: { id: string; name: string; badge: string; bg: string }[] = [
+  { id: 'codex', name: 'Codex', badge: 'Cx', bg: '#ECECEC' },
+  { id: 'claude', name: 'Claude Code', badge: 'Cl', bg: '#D97757' },
+  { id: 'cursor', name: 'Cursor', badge: 'Cu', bg: '#ECECEC' },
+  { id: 'opencode', name: 'OpenCode', badge: 'Oc', bg: '#ECECEC' },
+];
+
+/** Agents that can run as isolated workers (UI only for now). */
+function ConnectAgents() {
+  const [on, setOn] = useState<Record<string, boolean>>({});
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingBottom: 32 }}>
+      <span style={{ fontSize: 12, fontWeight: 500, color: '#8E8E8E' }}>Connect agents</span>
+      <div style={{ ...card, background: '#111113', borderColor: '#26262A' }}>
+        {AGENTS.map((a, i) => {
+          const connected = !!on[a.id];
+          return (
+            <div
+              key={a.id}
+              style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', borderTop: i ? '1px solid #1F1F23' : 'none' }}
+            >
+              <span
+                style={{
+                  width: 28,
+                  height: 28,
+                  flexShrink: 0,
+                  borderRadius: 8,
+                  background: a.bg,
+                  color: '#0D0D0D',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                {a.badge}
+              </span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flexGrow: 1 }}>
+                <span style={{ fontSize: 15, fontWeight: 500 }}>Connect {a.name}</span>
+                <span style={{ fontSize: 13, color: '#8E8E8E' }}>{connected ? 'Connected · runs as an isolated worker' : 'Not connected'}</span>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={connected}
+                aria-label={`Connect ${a.name}`}
+                onClick={() => setOn((m) => ({ ...m, [a.id]: !m[a.id] }))}
+                style={{
+                  width: 44,
+                  height: 26,
+                  flexShrink: 0,
+                  padding: 3,
+                  borderRadius: 999,
+                  border: 'none',
+                  background: connected ? '#3B6FE0' : '#2A2A2E',
+                  display: 'flex',
+                  justifyContent: connected ? 'flex-end' : 'flex-start',
+                  transition: 'background 0.2s',
+                }}
+              >
+                <span style={{ width: 20, height: 20, borderRadius: '50%', background: '#0D0D0D' }} />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /** Empty chat: type or paste anything, or start one of the demo scenarios. */
 function EmptyChat({ lab, onStart }: { lab: Lab; onStart: (prompt: string, mode: ChatMode) => void }) {
   const [mode, setMode] = useState<ChatMode>('chat');
@@ -59,9 +130,6 @@ function EmptyChat({ lab, onStart }: { lab: Lab; onStart: (prompt: string, mode:
       <div style={{ width: '100%', maxWidth: 820, display: 'flex', flexDirection: 'column', gap: 22 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center', textAlign: 'center' }}>
           <h1 style={{ margin: 0, fontSize: 30, fontWeight: 600, letterSpacing: '-0.025em' }}>What should the swarm work on?</h1>
-          <span style={{ fontSize: 15, color: '#8E8E8E' }}>
-            Paste anything confidential. The coordinator splits it so no single agent ever sees all of it.
-          </span>
         </div>
         <div style={{ ...card, padding: 14, gap: 10 }}>
           <textarea
@@ -132,6 +200,7 @@ function EmptyChat({ lab, onStart }: { lab: Lab; onStart: (prompt: string, mode:
             </button>
           ))}
         </div>
+        <ConnectAgents />
       </div>
     </div>
   );
