@@ -199,3 +199,14 @@ coverage was 8/8 with one quarantined output excluded. The web approval endpoint
 accepted approval and the cloud control session closed. These checks used the
 synthetic mission and deterministic outputs. Backend tests: 91 passed; frontend
 production build passed. The initial SuperGrid queue took several minutes.
+
+
+### Natural completion after backend restart — verified 2026-09-30 UTC
+
+Run `6014122921916706100` (mission `m-72f6b848`) completed the real native-control
+web lifecycle after restarting the backend with the graceful-close fix. Eight
+original workers finished, the simulated compromise was quarantined, a ninth
+worker node completed the replacement, and final coverage remained 8/8. After
+web approval, the ServerApp returned naturally and Flower reported
+**`finished:completed`**, without a stop command. This supersedes the earlier
+native-control validation whose cleanup recorded `finished:stopped`.
