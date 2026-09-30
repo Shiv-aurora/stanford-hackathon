@@ -210,7 +210,10 @@ export function Overview({
   const incColor = phase === 0 || phase === 6 ? '#86EFAC' : '#FCA5A5';
   const qRing = redPhase ? 'rgba(239,68,68,0.55)' : 'rgba(255,255,255,0.08)';
 
-  const showSim = phase === 0;
+  const closed = view.approved || view.status === 'failed' ||
+    (view.runtime === 'supergrid' && view.status === 'complete' && !view.controlAvailable);
+  const pending = !!view.actionPending;
+  const showSim = phase === 0 && !closed;
   const hasResult = !!view.result;
   const target = rows[t];
 
@@ -229,23 +232,26 @@ export function Overview({
                 title={view.error}
                 style={{ fontSize: 12, fontWeight: 500, padding: '3px 8px', borderRadius: 999, color: '#FCA5A5', background: 'rgba(239,68,68,0.16)', whiteSpace: 'nowrap' }}
               >
-                Mission needs attention
+                {view.error}
               </span>
             )}
             {showSim && (
               <button
                 type="button"
-                disabled={!target || (view.runtime === 'supergrid' && !view.controlAvailable)}
+                disabled={pending || !target || (view.runtime === 'supergrid' && !view.controlAvailable)}
                 onClick={() => target && actions.attack(target.key)}
                 style={hasResult ? ghostBtn : pillBtn}
               >
-                Simulate compromise
+                {view.actionPending === 'attack' ? 'Sending compromise…' : !target || (view.runtime === 'supergrid' && !view.controlAvailable) ? 'Waiting for workers…' : 'Simulate compromise'}
               </button>
             )}
-            {phase > 0 && (
-              <button type="button" onClick={() => actions.reset()} style={ghostBtn}>
-                Reset demo
-              </button>
+            {(closed || phase > 0) && (
+              <>
+                {closed && <span style={{ fontSize: 12, color: '#B4B4B4' }}>Session ended · start a new demo to simulate</span>}
+                <button type="button" disabled={pending} onClick={() => actions.reset()} style={ghostBtn}>
+                  {view.actionPending === 'create' ? 'Starting demo…' : closed ? 'Start interactive demo' : 'Reset demo'}
+                </button>
+              </>
             )}
             {hasResult && (
               <button type="button" onClick={onReviewResult} style={pillBtn}>

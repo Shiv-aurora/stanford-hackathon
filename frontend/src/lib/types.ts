@@ -81,6 +81,7 @@ export interface MissionView {
   runId?: string | null;
   federation?: string | null;
   controlAvailable?: boolean;
+  actionPending?: 'attack' | 'create' | 'approve' | null;
   id: string;
   /** Code name shown in the UI, e.g. "Orion". */
   name: string;

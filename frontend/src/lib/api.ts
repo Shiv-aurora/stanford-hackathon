@@ -194,6 +194,8 @@ export class ApiMission implements MissionActions {
   private workers: BackendWorker[] = [];
   private result: BackendResult | null = null;
   private error: string | null = null;
+  private pollError: string | null = null;
+  private actionPending: MissionView['actionPending'] = null;
   private prompt = DEMO_PROMPT;
   /** Client-side timing so progress bars and the containment steps animate. */
   private runningSince = new Map<string, number>();
@@ -237,6 +239,14 @@ export class ApiMission implements MissionActions {
   getView = () => this.view;
 
   attack = (workerKey: string) => {
+    if (this.actionPending) return;
+    if (this.mission?.approved || (this.mission?.runtime === 'supergrid' && !this.mission.control_available)) {
+      this.fail(new Error('This session is closed. Start a new interactive demo to simulate a compromise.'));
+      return;
+    }
+    this.actionPending = 'attack';
+    this.error = null;
+    this.emit();
     const w = this.view.allWorkers.find((x) => x.key === workerKey);
     this.attackedAt.set(workerKey, Date.now());
     this.frozenPct.set(workerKey, w ? w.pct : 0);
@@ -251,7 +261,8 @@ export class ApiMission implements MissionActions {
       .catch((e: unknown) => {
         this.attackedAt.delete(workerKey);
         this.fail(e);
-      });
+      })
+      .finally(() => { this.actionPending = null; this.emit(); });
   };
 
   reset = () => this.createMission(this.mission?.prompt || this.prompt);
@@ -270,12 +281,19 @@ export class ApiMission implements MissionActions {
   };
 
   createMission = (prompt: string) => {
+    if (this.actionPending) return;
+    this.actionPending = 'create';
+    this.error = null;
+    this.emit();
     this.prompt = prompt.trim() || DEMO_PROMPT;
     api
       .createMission(this.prompt)
       .then((m) => {
         this.missionId = m.id;
         this.createdAt = Date.now();
+        const url = new URL(window.location.href);
+        url.searchParams.set('mission', m.id);
+        window.history.replaceState(null, '', url);
         this.mission = m;
         this.workers = [];
         this.result = null;
@@ -290,7 +308,8 @@ export class ApiMission implements MissionActions {
         }
         return this.poll();
       })
-      .catch((e: unknown) => this.fail(e));
+      .catch((e: unknown) => this.fail(e))
+      .finally(() => { this.actionPending = null; this.emit(); });
   };
 
   private upsert(w: BackendWorker) {
@@ -334,9 +353,9 @@ export class ApiMission implements MissionActions {
       }
       this.workers = await api.getWorkers(this.missionId);
       await this.refreshResult();
-      this.error = null;
+      this.pollError = null;
     } catch (e) {
-      this.error = e instanceof Error ? `Backend unreachable (${e.message})` : 'Backend unreachable';
+      this.pollError = e instanceof Error ? `Backend unreachable (${e.message})` : 'Backend unreachable';
     } finally {
       this.busy = false;
       this.emit();
@@ -445,6 +464,7 @@ export class ApiMission implements MissionActions {
       runId: m.run_id,
       federation: m.federation,
       controlAvailable: m.control_available,
+      actionPending: this.actionPending,
       status: m.status,
       workers,
       allWorkers,
@@ -453,7 +473,7 @@ export class ApiMission implements MissionActions {
       doneCount,
       result: this.result?.result ?? m.result,
       approved: m.approved,
-      error: this.error ?? m.error ?? null,
+      error: this.error ?? this.pollError ?? m.error ?? null,
     };
   }
 }
