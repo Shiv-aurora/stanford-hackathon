@@ -1,0 +1,22 @@
+{
+  "domain": "arm",
+  "variant": "augment",
+  "seed": 4,
+  "group": [
+    "e",
+    "flip_x"
+  ],
+  "num_cells": 4096,
+  "num_orbits": 2048,
+  "reduction": 2.0,
+  "batch_size": 32,
+  "iterations": 2000,
+  "final": {
+    "iteration": 2000,
+    "evaluations": 64032,
+    "time": 2.9983577728271484,
+    "coverage": 73.095703125,
+    "max_fitness": -0.002118694130331278,
+    "qd_score": 2906.27490234375
+  }
+}
