@@ -1,0 +1,33 @@
+{
+  "domain": "ant_omni",
+  "variant": "fd",
+  "seed": 0,
+  "group": [
+    "e",
+    "r90",
+    "r180",
+    "r270",
+    "flip_x",
+    "flip_y",
+    "flip_diag",
+    "flip_anti"
+  ],
+  "num_cells": 1089,
+  "num_orbits": 153,
+  "reduction": 7.117647058823529,
+  "batch_size": 128,
+  "iterations": 300,
+  "final": {
+    "iteration": 300,
+    "evaluations": 38528,
+    "time": 926.6307265758514,
+    "coverage": 15.151515007019043,
+    "max_fitness": 99.99029541015625,
+    "qd_score": 62530.234375
+  },
+  "reevaluated": {
+    "qd_score": 24022.337890625,
+    "max_fitness": 99.99029541015625,
+    "coverage": 5.876951217651367
+  }
+}
