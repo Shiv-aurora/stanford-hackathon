@@ -111,7 +111,8 @@ def run_one(task, cells, variant, seed, args, out) -> None:
     reeval_rows = []
 
     def record_reeval(it):
-        fresh = reevaluate(algo.expand(repertoire), task.scoring_fn, jax.random.PRNGKey(10_000 + seed))
+        fresh = reevaluate(algo.expand(repertoire), task.scoring_fn,
+                           jax.random.PRNGKey(10_000 + seed), batch_size=args.batch_size)
         m = {k: float(v) for k, v in default_qd_metrics(fresh, task.qd_offset).items()}
         reeval_rows.append(dict(iteration=it, evaluations=args.batch_size * (it + 1), **m))
         return m

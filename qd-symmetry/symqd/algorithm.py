@@ -288,7 +288,7 @@ def reevaluate(
     repertoire: MapElitesRepertoire,
     scoring_fn: Callable,
     key: jax.Array,
-    batch_size: int = 1024,
+    batch_size: int = 128,
 ) -> MapElitesRepertoire:
     """Re-score every elite and re-insert it into a fresh archive.
 
@@ -298,16 +298,22 @@ def reevaluate(
     Re-binning uses QDax's nearest-centroid rule, so a descriptor lying exactly
     on a cell boundary can move to a neighbouring cell (use odd grids for
     groups that fix the origin, so the origin is a cell centre, not a vertex).
+
+    Pass the batch size used during search: XLA results can depend on the
+    batch shape at float32 round-off level, which chaotic tasks (the Ant)
+    amplify. Every chunk, including the last, is padded to ``batch_size``.
     """
     filled = jnp.nonzero(repertoire.fitnesses != -jnp.inf)[0]
     genotypes = jax.tree.map(lambda x: x[filled], repertoire.genotypes)
     n = int(filled.shape[0])
     fits, descs = [], []
     for start in range(0, n, batch_size):
-        chunk = jax.tree.map(lambda x: x[start : start + batch_size], genotypes)
+        idx = jnp.minimum(jnp.arange(start, start + batch_size), n - 1)
+        chunk = jax.tree.map(lambda x: x[idx], genotypes)
         f, d, _ = scoring_fn(chunk, key)
-        fits.append(f)
-        descs.append(d)
+        keep = min(batch_size, n - start)
+        fits.append(jnp.reshape(f, (-1,))[:keep])
+        descs.append(d[:keep])
     fresh = MapElitesRepertoire.init_default(
         jax.tree.map(lambda x: x[0], repertoire.genotypes), repertoire.centroids
     )
