@@ -165,7 +165,56 @@ FD archive claimed 6.7% coverage, but only 1.9% survived re-evaluation.
 For approximate symmetries, report **re-evaluated** metrics (`--reeval-every`,
 `--reevaluate`); `run.py` does this for all variants.
 
-ANT_QD_PLACEHOLDER
+### Ant Omni: the claimed gain does not survive re-evaluation
+
+Brax `generalized` backend, 100-step episodes, descriptor clipped to ±15 m,
+33x33 grid, batch 128, 300 iterations (38,528 evaluations), 2 seeds, CPU.
+"Claimed" is what the archive reports during search; "re-evaluated" re-scores
+every elite of the (expanded) full archive and re-bins it.
+
+| variant | claimed QD-score | claimed coverage | re-evaluated QD-score | re-evaluated coverage |
+|---|---|---|---|---|
+| baseline | 59,646 ± 3,353 | 14.9 ± 0.6% | **54,461 ± 3,589** | **13.6 ± 0.6%** |
+| augment | 94,263 ± 9,881 | 23.2 ± 1.1% | 38,340 ± 4,689 | 9.4 ± 0.7% |
+| fd | 66,325 ± 3,795 | 16.1 ± 0.9% | 25,045 ± 1,022 | 6.1 ± 0.2% |
+
+(`results/ant_omni_ep100/summary.md`, `curves.png`; dots in the figure are
+re-evaluations at 100, 200 and 300 iterations.)
+
+* By the claimed metrics, symmetry looks like a 4–11x speed-up. After
+  re-evaluation both symmetric variants are **below the baseline** (augment
+  −31%, fd −55% re-evaluated coverage). Under an approximate symmetry, predicted
+  elites that are wrong occupy cells and act as parents, and they displace
+  real solutions.
+* `fd` is hit hardest because *every* stored elite is a transformed,
+  never-evaluated controller. `augment` still stores the evaluated original
+  alongside its copies. `fd`'s claimed coverage also stalls (16.99% from
+  iteration 100 to 300 on seed 1). One plausible cause: its parents' stored
+  descriptors are predictions, not where the controllers actually go.
+* The baseline itself loses ~9% coverage on re-evaluation. Evaluation is
+  deterministic for a fixed batch shape (bit-identical repeats), but a
+  different batch shape changes the outcome of ~0.8% of random controllers
+  (float32 round-off amplified by chaos). Elites are plausibly over-represented
+  among those lucky outcomes, since they were selected for reaching their
+  cells. `reevaluate` now pads to the search batch size; these runs predate
+  that change, so the baseline's re-evaluation drop is partly batch-shape
+  noise.
+
+**What this means for the paper.** The method is sound and the gain is real
+when the symmetry is exact (it reaches or exceeds the archive-size bound),
+but on a standard chaotic locomotion benchmark the symmetry is too
+approximate for blind transfer. This is a stronger, more honest paper than
+"up to |G|x": a general method, a predicted bound, a demonstrated failure
+mode, and a diagnostic (transfer gap / same-cell rate) that tells you in
+advance which regime a task is in. Natural follow-ups:
+
+1. **Verified transfer:** evaluate each transformed copy before insertion
+   (costs evaluations, but still steers search into the other orbit cells).
+2. **Shorter horizons or float64 rollouts**, where the generalized Ant is
+   exact up to 1e-10 for 50 steps.
+3. **Smaller groups:** `--subgroup e r180` on the spring backend, the one
+   non-trivial element it preserves exactly.
+4. Full-scale runs (250 steps, batch 1024, 5 seeds) on a GPU.
 
 ## Running
 

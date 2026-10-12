@@ -90,7 +90,12 @@ def summarise(directory: str, runs, reeval, meta) -> str:
         row = f"| {LABELS[v]} | {q.mean():.1f} ± {q.std():.1f} | {c.mean():.2f} ± {c.std():.2f} |"
         for f in FRACTIONS:
             e = np.median([evals_to_reach(df, f * base_final) for df in runs[v]])
-            row += f" {e:,.0f} | {base_evals[f] / e:.2f}x |" if math.isfinite(e) else " not reached | – |"
+            if not math.isfinite(e):
+                row += " not reached | – |"
+            elif not math.isfinite(base_evals[f]):
+                row += f" {e:,.0f} | – |"
+            else:
+                row += f" {e:,.0f} | {base_evals[f] / e:.2f}x |"
         if reeval:
             if v in reeval:
                 rq = np.array([df["qd_score"].iloc[-1] for df in reeval[v]])
@@ -100,6 +105,9 @@ def summarise(directory: str, runs, reeval, meta) -> str:
                 row += " – | – |"
         lines.append(row)
     lines += ["", "Evaluations-to-target are medians over seeds; speed-up is relative to the baseline."]
+    if reeval:
+        lines += ["Targets and speed-ups use the metrics the archive *claims* during search; for an",
+                  "approximate symmetry compare the re-evaluated columns instead."]
     return "\n".join(lines) + "\n"
 
 
@@ -143,7 +151,7 @@ def plot(directory: str, runs, reeval, meta) -> None:
             ax.fill_between(x, ys.min(0), ys.max(0), color=COLORS[v], alpha=0.15, lw=0)
             ax.plot(x, mean, color=COLORS[v], ls=STYLES[v], lw=2, label=LABELS[v])
             ends.append((mean[-1], LABELS[v], x[-1]))
-            if v in reeval and v != "baseline":
+            if v in reeval:
                 rx = reeval[v][0]["evaluations"].to_numpy()
                 ry = np.stack([df[column].to_numpy() for df in reeval[v]]).mean(0)
                 ax.plot(rx, ry, ls="none", marker="o", ms=8, mfc=COLORS[v], mec=SURFACE, mew=2,
