@@ -776,17 +776,6 @@
       c.font = `600 34px ${F_BODY}`; c.fillStyle = '#ece6d6'; c.fillText('AUTHORIZED PERSONNEL ONLY', w / 2, h / 2 + 40);
     }) }));
     head.position.set(0, (TY + H) / 2, -RAMP_B); g.add(head);
-    // NASA Ames monument sign
-    const signG = new THREE.Group(); signG.position.set(-13, 0, -24); signG.rotation.y = 0.35; g.add(signG);
-    const signFace = tex(512, 192, (c, w, h) => {
-      c.fillStyle = '#f2efe6'; c.fillRect(0, 0, w, h); drawInsignia(c, 92, h / 2, 68);
-      c.fillStyle = '#16233d'; c.textAlign = 'left'; c.textBaseline = 'middle';
-      c.font = `700 44px ${F_BODY}`; c.fillText('Ames Research Center', 180, 78);
-      c.font = `600 30px ${F_BODY}`; c.fillStyle = '#4b5568'; c.fillText('Moffett Field, California', 180, 124);
-    });
-    const sbox = new THREE.Mesh(G.box, [M.beam, M.beam, M.beam, M.beam, new THREE.MeshPhongMaterial({ map: signFace }), M.beam]);
-    sbox.scale.set(7, 2.6, 0.5); sbox.position.y = 1.7; signG.add(sbox);
-    const base = new THREE.Mesh(G.box, phong(0x6b6256)); base.scale.set(7.6, 0.5, 1); base.position.y = 0.25; signG.add(base);
     buildAirfield(g);
     buildCampus(g);
     // distant hills
