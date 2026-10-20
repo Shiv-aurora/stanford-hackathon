@@ -525,7 +525,12 @@
     const legL = limb(-0.16, 0.95, true), legR = limb(0.16, 0.95, true);
     const armL = limb(-0.42, 1.68, false), armR = limb(0.42, 1.68, false);
     const rest = [headG, legL, legR, armL, armR].map(o => [o, o.position.clone()]);
-    return { root, body, torso, headG, legL, legR, armL, armR, rest, phase: Math.random() * 6 };
+    // points checked against the ground each frame: [part, local point, radius]
+    const probes = [[headG, new V3(0, 0, 0), 0.23]];
+    for (const x of [-0.32, 0.32]) for (const y of [0.99, 1.73]) for (const z of [-0.18, 0.18]) probes.push([body, new V3(x, y, z), 0]);
+    for (const a of [armL, armR]) probes.push([a, new V3(0, 0, 0), 0.1], [a, new V3(0, -0.7, 0), 0.09]);
+    for (const l of [legL, legR]) { probes.push([l, new V3(0, 0, 0), 0.13]); for (const x of [-0.135, 0.135]) for (const z of [-0.26, 0.14]) probes.push([l, new V3(x, -0.97, z), 0]); }
+    return { root, body, torso, headG, legL, legR, armL, armR, rest, probes, phase: Math.random() * 6 };
   }
   function makeRunner() {
     const tee = phong(0xffffff, { map: T.shirt, shininess: 4 }), skin = phong(0xd9a37c);
@@ -559,16 +564,16 @@
     h.lasso = lasso;
     return h;
   }
-  function animateRun(h, dt, rate, pose) {
+  function animateRun(h, dt, rate, pose, pitch) {
     h.phase += dt * rate;
     const s = Math.sin(h.phase);
     let lean = -0.14, by = Math.abs(Math.cos(h.phase)) * 0.07, legA = s * 0.95, armA = s * 0.8;
     if (pose === 'jump') { legA = 0; by = 0; lean = -0.05; }
     if (pose === 'idle') { legA = 0; armA = Math.sin(h.phase * 0.3) * 0.05; by = 0; lean = 0; }
-    const tgt = pose === 'slide' ? 1.15 : lean;
+    const tgt = pose === 'slide' ? 1.15 - (pitch || 0) : lean;
     h.body.rotation.x = lerp(h.body.rotation.x, tgt, damp(18, dt));
-    h.body.position.y = lerp(h.body.position.y, pose === 'slide' ? -0.62 : by, damp(18, dt));
-    if (pose === 'slide') { h.legL.rotation.x = 0.25; h.legR.rotation.x = 0.05; h.armL.rotation.x = 2.4; h.armR.rotation.x = 2.2; return; }
+    h.body.position.y = lerp(h.body.position.y, pose === 'slide' ? -0.12 : by, damp(18, dt));
+    if (pose === 'slide') { h.legL.rotation.x = 0.25; h.legR.rotation.x = 0.05; h.armL.rotation.x = 1.6; h.armR.rotation.x = 1.4; return; }
     if (pose === 'jump') { h.legL.rotation.x = 0.7; h.legR.rotation.x = -0.4; h.armL.rotation.x = 2.6; h.armR.rotation.x = 2.4; return; }
     h.legL.rotation.x = legA; h.legR.rotation.x = -legA; h.armL.rotation.x = -armA; h.armR.rotation.x = armA;
   }
@@ -1387,6 +1392,30 @@
   }
   const chaserPos = { x: 0, y: 0, z: 0, yaw: 0 };
 
+  // floor height under any world point: checks the segments around the player (handles the ramp)
+  function groundAtWorld(x, z) {
+    const i = P.seg.index;
+    for (const s of segs) {
+      if (s.index < i - 1 || s.index > i + 1) continue;
+      const D = DIRS[s.dir], R = RIGHT(s.dir), rx = x - s.start.x, rz = z - s.start.z;
+      const d = rx * D.x + rz * D.z, lat = rx * R.x + rz * R.z;
+      if (d >= -W / 2 - 0.5 && d <= s.L + W / 2 + 0.5 && Math.abs(lat) <= W / 2 + 2) return groundY(s, clamp(d, 0, s.L));
+    }
+    return P.seg.index === 0 ? groundY(P.seg, P.d) : TY;
+  }
+  const probeV = new V3();
+  // lift a character so no body part sits below the floor
+  function groundClamp(h) {
+    h.root.updateMatrixWorld(true);
+    let pen = 0;
+    for (const [o, v, r] of h.probes) {
+      probeV.copy(v); o.localToWorld(probeV);
+      pen = Math.max(pen, groundAtWorld(probeV.x, probeV.z) + 0.02 - (probeV.y - r));
+    }
+    if (pen > 0) h.root.position.y += pen;
+    return pen;
+  }
+  function slopeAt(seg, d) { return seg.index === 0 && d > RAMP_A && d < RAMP_B ? Math.atan2(-TY, RAMP_B - RAMP_A) : 0; }
   function updateCharacters(dt) {
     playerWorld(tmp);
     runner.root.position.copy(tmp);
@@ -1395,7 +1424,7 @@
     if (state === 'title') pose = 'idle';
     else if (P.sliding) pose = 'slide';
     else if (!P.grounded) pose = 'jump';
-    if (state !== 'dead' && state !== 'over') animateRun(runner, dt, state === 'title' ? 2 : P.speed * 0.75, pose);
+    if (state !== 'dead' && state !== 'over') { animateRun(runner, dt, state === 'title' ? 2 : P.speed * 0.75, pose, slopeAt(P.seg, P.d)); runner.lift = groundClamp(runner); }
 
     historyAt(P.total - C.gap, chaserPos);
     cowboy.root.position.set(chaserPos.x, chaserPos.y, chaserPos.z);
@@ -1410,6 +1439,7 @@
     animateRun(cowboy, dt, state === 'title' ? 2 : moving ? Math.max(8, P.speed * 0.7) : 2, moving ? 'run' : 'idle');
     cowboy.lasso.visible = close;
     if (close) { cowboy.armR.rotation.x = Math.PI - 0.15; cowboy.lasso.rotation.y += dt * 9; }
+    if (cowboy.root.visible) groundClamp(cowboy);
   }
 
   function updateDead(dt) {
@@ -1726,7 +1756,7 @@
     el.loading.hidden = true;
     last = performance.now();
     requestAnimationFrame(frame);
-    window.__hor = { get state() { return state; }, get P() { return P; }, get C() { return C; }, get rag() { return rag; }, get segs() { return segs; }, input, renderer, scene, camera, insideHangarOne, teleport(seg, d, lane) { P.seg = seg; P.d = d; P.lane = lane == null ? 1 : lane; P.x = P.tx = LANES[P.lane]; P.queuedTurn = false; ensureSegments(); camPos.set(0, 0, 0); camLook.set(0, 0, 0); } };
+    window.__hor = { get state() { return state; }, get P() { return P; }, get C() { return C; }, get rag() { return rag; }, get runner() { return runner; }, get cowboy() { return cowboy; }, groundAtWorld, get segs() { return segs; }, input, renderer, scene, camera, insideHangarOne, teleport(seg, d, lane) { P.seg = seg; P.d = d; P.lane = lane == null ? 1 : lane; P.x = P.tx = LANES[P.lane]; P.queuedTurn = false; ensureSegments(); camPos.set(0, 0, 0); camLook.set(0, 0, 0); } };
   }
   boot();
 })();
