@@ -13,7 +13,6 @@
   const LANE = 3;         // lane spacing
   const TY = -10;         // tunnel floor height
   const RAMP_A = 14, RAMP_B = 52, SEG0_LEN = 210; // the ramp ends right under Hangar One's front wall
-  const HANGAR_Z = -RAMP_B;
   const GRAV = 30, JUMP_V = 10.2, SLIDE_TIME = 0.75;
   const DIRS = [new V3(0, 0, -1), new V3(1, 0, 0), new V3(0, 0, 1), new V3(-1, 0, 0)];
   const RIGHT = d => DIRS[(d + 1) % 4];
@@ -122,6 +121,86 @@
     g.fillText('NASA', cx, cy + R * 0.03);
   }
 
+  // curved lettering around a circle (top reads clockwise, bottom reads left-to-right)
+  function arcText(g, text, cx, cy, r, center, top, spacing) {
+    const ws = [...text].map(c => g.measureText(c).width);
+    const total = ws.reduce((a, b) => a + b, 0) + spacing * (ws.length - 1), span = total / r;
+    let acc = 0;
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    [...text].forEach((ch, i) => {
+      const a = top ? center - span / 2 + (acc + ws[i] / 2) / r : center + span / 2 - (acc + ws[i] / 2) / r;
+      g.save(); g.translate(cx + r * Math.cos(a), cy + r * Math.sin(a)); g.rotate(top ? a + Math.PI / 2 : a - Math.PI / 2);
+      g.fillText(ch, 0, 0); g.restore();
+      acc += ws[i] + spacing;
+    });
+  }
+  function star4(g, x, y, r) {
+    g.beginPath(); g.moveTo(x, y - r); g.lineTo(x + r * 0.25, y - r * 0.25); g.lineTo(x + r, y); g.lineTo(x + r * 0.25, y + r * 0.25);
+    g.lineTo(x, y + r); g.lineTo(x - r * 0.25, y + r * 0.25); g.lineTo(x - r, y); g.lineTo(x - r * 0.25, y - r * 0.25); g.closePath(); g.fill();
+  }
+  // Ames Research Center lapel pin: gold rim, white ring with curved lettering, insignia with the vector poking out top right
+  function drawAmesPin(g, w) {
+    const c = w / 2, gold = '#c9a24a', goldDark = '#8a6a1e';
+    const ring = (r, fill) => { g.fillStyle = fill; g.beginPath(); g.arc(c, c, r, 0, Math.PI * 2); g.fill(); };
+    const gr = g.createLinearGradient(0, 0, w, w); gr.addColorStop(0, '#f3dc8c'); gr.addColorStop(0.5, gold); gr.addColorStop(1, goldDark);
+    ring(236, gr); ring(226, '#f7f6f1'); ring(158, gr); ring(151, '#1f3f99');
+    g.fillStyle = '#2a2414'; g.font = `700 38px ${F_BODY}`;
+    arcText(g, 'AMES RESEARCH CENTER', c, c, 192, -Math.PI / 2 - 0.12, true, 2.5);
+    arcText(g, 'SILICON VALLEY, CA', c, c, 192, Math.PI / 2 + 0.05, false, 3.5);
+    g.save(); g.beginPath(); g.arc(c, c, 151, 0, Math.PI * 2); g.clip();
+    g.fillStyle = '#fff';
+    for (const [x, y, r] of [[300, 140, 9], [205, 170, 6], [350, 330, 7], [168, 352, 6], [330, 205, 4], [230, 380, 4]]) star4(g, x, y, r);
+    for (let i = 0; i < 40; i++) { const a = rand(0, 6.28), r = rand(20, 145); g.fillRect(c + Math.cos(a) * r, c + Math.sin(a) * r, 2.2, 2.2); }
+    g.strokeStyle = 'rgba(255,255,255,.9)'; g.lineWidth = 5;
+    g.save(); g.translate(c + 12, c + 4); g.rotate(-0.42); g.beginPath(); g.ellipse(0, 0, 48, 128, 0, 0, Math.PI * 2); g.stroke(); g.restore();
+    g.restore();
+    // the vector
+    g.beginPath();
+    g.moveTo(52, 362); g.quadraticCurveTo(250, 236, 506, 54); g.quadraticCurveTo(300, 270, 80, 380); g.quadraticCurveTo(62, 376, 52, 362); g.closePath();
+    g.fillStyle = '#a3381c'; g.fill(); g.lineWidth = 4; g.strokeStyle = gold; g.stroke();
+    // NASA wordmark, white with a gold outline
+    g.font = `900 104px Georgia, "Times New Roman", serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
+    const letters = ['N', 'A', 'S', 'A'], xs = [-108, -36, 36, 108];
+    letters.forEach((L, i) => { g.lineWidth = 7; g.strokeStyle = goldDark; g.strokeText(L, c + xs[i], c + 6); g.fillStyle = '#fff'; g.fillText(L, c + xs[i], c + 6); });
+  }
+  function heather(g, w, h) {
+    const img = g.createImageData(w, h), d = img.data;
+    for (let i = 0; i < d.length; i += 4) { const n = 132 + (Math.random() - 0.5) * 34 + (Math.random() < 0.08 ? 22 : 0); d[i] = n; d[i + 1] = n; d[i + 2] = n + 2; d[i + 3] = 255; }
+    g.putImageData(img, 0, 0);
+  }
+  function collar(g, w) { g.strokeStyle = 'rgba(70,70,72,.6)'; g.lineWidth = 6; g.beginPath(); g.ellipse(w / 2, -6, 56, 30, 0, 0, Math.PI); g.stroke(); }
+  // "I was an Intern @NASA" back print: astronaut, blue disc, red orbit ring, satellite
+  function drawShirtBack(g, w, h) {
+    heather(g, w, h);
+    const cx = w / 2 + 6, cy = 112, R = 66;
+    g.strokeStyle = '#e0242a'; g.lineWidth = 8;
+    g.save(); g.translate(cx, cy); g.rotate(-0.38); g.beginPath(); g.ellipse(0, 0, R + 34, 26, 0, Math.PI * 0.92, Math.PI * 1.92); g.stroke(); g.restore();
+    g.fillStyle = '#1f3f99'; g.beginPath(); g.arc(cx, cy, R, 0, Math.PI * 2); g.fill();
+    g.lineWidth = 5; g.strokeStyle = '#e0242a'; g.stroke();
+    g.fillStyle = '#fff'; for (let i = 0; i < 18; i++) { const a = rand(0, 6.28), r = rand(10, R - 6); g.fillRect(cx + Math.cos(a) * r, cy + Math.sin(a) * r, 2, 2); }
+    star4(g, cx + 40, cy - 36, 5); star4(g, cx - 34, cy + 44, 4);
+    g.strokeStyle = '#e0242a'; g.lineWidth = 8;
+    g.save(); g.translate(cx, cy); g.rotate(-0.38); g.beginPath(); g.ellipse(0, 0, R + 34, 26, 0, Math.PI * 0.02, Math.PI * 0.92); g.stroke(); g.restore();
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillStyle = '#fff'; g.font = `600 20px Arial, Helvetica, sans-serif`; g.fillText('I was an', cx - 6, cy - 30);
+    g.font = `900 38px Arial, Helvetica, sans-serif`; g.lineWidth = 6; g.strokeStyle = '#fff'; g.strokeText('Intern', cx, cy + 4); g.fillStyle = '#e0242a'; g.fillText('Intern', cx, cy + 4);
+    g.fillStyle = '#fff'; g.font = `600 24px Arial, Helvetica, sans-serif`; g.fillText('@NASA', cx, cy + 38);
+    // astronaut floating at the upper left
+    g.save(); g.translate(cx - 82, cy - 52); g.rotate(-0.25);
+    g.fillStyle = '#f4f4f4'; g.strokeStyle = '#222'; g.lineWidth = 2;
+    const blob = (x, y, ww, hh) => { g.beginPath(); g.ellipse(x, y, ww, hh, 0, 0, Math.PI * 2); g.fill(); g.stroke(); };
+    blob(-14, 4, 7, 14); blob(16, -2, 7, 13); blob(-6, 26, 7, 14); blob(8, 28, 7, 14);
+    blob(0, 8, 15, 18); blob(0, -16, 14, 13);
+    g.fillStyle = '#1b1f2a'; g.beginPath(); g.ellipse(2, -16, 9, 7, 0, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#9aa'; g.fillRect(-5, 4, 10, 7);
+    g.restore();
+    // satellite at the upper right
+    g.save(); g.translate(cx + 82, cy - 70); g.rotate(0.7);
+    g.fillStyle = '#222'; g.fillRect(-22, -4, 14, 8); g.fillRect(8, -4, 14, 8);
+    g.fillStyle = '#ddd'; g.fillRect(-7, -7, 14, 14); g.strokeStyle = '#222'; g.strokeRect(-7, -7, 14, 14);
+    g.restore();
+    collar(g, w);
+  }
   const T = {}; // textures
   function buildTextures() {
     T.wall = tex(256, 256, (g, w, h) => {
@@ -154,8 +233,29 @@
     }, true);
     T.metal.repeat.set(1 / 10, 1 / 10);
     T.metal2 = T.metal.clone(); T.metal2.needsUpdate = true; T.metal2.repeat.set(1 / 6, 1 / 6);
+    // Hangar One siding, all light (no dark roof): u across the arch, v along the length (16 m per tile)
+    const rows = [0.13, 0.27, 0.41], sky = [0.6, 0.68];
+    T.hangarSkin = tex(1024, 128, (g, w, h) => {
+      fillNoise(g, w, h, [226, 228, 224], 8);
+      for (let y = 0; y < h; y += 8) { g.fillStyle = 'rgba(120,125,122,.25)'; g.fillRect(0, y, w, 1); }
+      for (const s of rows) for (const u of [s / 2, 1 - s / 2]) for (const y of [20, 84]) { g.fillStyle = '#4a5560'; g.fillRect(u * w - 6, y, 12, 18); g.fillStyle = 'rgba(160,190,210,.5)'; g.fillRect(u * w - 6, y, 12, 4); }
+      for (const u of [sky[0] / 2, 1 - sky[0] / 2, sky[1] / 2, 1 - sky[1] / 2]) { g.fillStyle = '#c4ced4'; g.fillRect(u * w - 14, 30, 28, 56); g.fillStyle = 'rgba(255,255,255,.5)'; g.fillRect(u * w - 14, 30, 28, 3); }
+      g.fillStyle = 'rgba(90,95,92,.35)'; g.fillRect(w / 2 - 4, 0, 8, h);
+      g.fillStyle = 'rgba(70,72,70,.5)'; g.fillRect(0, 0, 4, h); g.fillRect(w - 4, 0, 4, h);
+    }, true);
+    T.hangarDoor = tex(512, 512, (g, w, h) => {
+      fillNoise(g, w, h, [228, 230, 226], 8);
+      for (let x = 0; x < w; x += 16) { g.fillStyle = 'rgba(120,125,122,.25)'; g.fillRect(x, 0, 1, h); }
+      for (const s of rows) { const y = (1 - s) * h; for (let x = 24; x < w; x += 64) { g.fillStyle = '#4a5560'; g.fillRect(x, y - 10, 22, 18); g.fillStyle = 'rgba(160,190,210,.5)'; g.fillRect(x, y - 10, 22, 4); } }
+      g.fillStyle = 'rgba(70,72,70,.5)'; g.fillRect(0, h - 6, w, 6);
+    });
+    T.concrete = tex(256, 256, (g, w, h) => {
+      fillNoise(g, w, h, [150, 149, 143], 14);
+      stains(g, w, h, 6, '120,115,105', 60, 0.15);
+      g.fillStyle = 'rgba(90,88,84,.5)'; g.fillRect(0, 0, w, 2); g.fillRect(0, 0, 2, h);
+    }, true);
     T.windows = tex(256, 256, (g, w, h) => {
-      fillNoise(g, w, h, [196, 186, 164], 12);
+      fillNoise(g, w, h, [222, 208, 178], 12);
       for (let y = 20; y < h; y += 64) for (let x = 12; x < w; x += 42) { g.fillStyle = '#26323b'; g.fillRect(x, y, 26, 30); g.fillStyle = 'rgba(160,200,230,.25)'; g.fillRect(x, y, 26, 8); }
     }, true);
     T.louver = tex(256, 128, (g, w, h) => {
@@ -199,19 +299,12 @@
       g.strokeStyle = 'rgba(80,70,55,.6)'; g.lineWidth = 2;
       for (let y = 4; y < h; y += 7) { g.beginPath(); for (let x = 0; x <= w; x += 8) g.lineTo(x, y + Math.sin(x * 0.2 + y) * 3); g.stroke(); }
     }, true);
-    T.pinCanvas = makeCanvas(256, 256, (g, w) => {
-      const gr = g.createRadialGradient(w * 0.4, w * 0.35, 10, w / 2, w / 2, w / 2);
-      gr.addColorStop(0, '#fff2b0'); gr.addColorStop(0.6, '#d4a93c'); gr.addColorStop(1, '#8a6414');
-      g.fillStyle = gr; g.fillRect(0, 0, w, w);
-      drawInsignia(g, w / 2, w / 2, w * 0.42);
-    });
+    T.pinCanvas = makeCanvas(512, 512, drawAmesPin);
     T.pin = new THREE.CanvasTexture(T.pinCanvas);
     T.pin.anisotropy = MAXANISO;
-    T.back = tex(128, 128, (g, w, h) => {
-      g.fillStyle = '#2b55c9'; g.fillRect(0, 0, w, h);
-      drawInsignia(g, w / 2, 46, 26);
-      g.fillStyle = '#fff'; g.font = `700 26px ${F_BODY}`; g.textAlign = 'center'; g.fillText('INTERN', w / 2, 102);
-    });
+    T.shirtBack = tex(256, 296, drawShirtBack);
+    T.shirtFront = tex(256, 296, (g, w, h) => { heather(g, w, h); collar(g, w); drawInsignia(g, w * 0.72, h * 0.24, 22); });
+    T.shirt = tex(64, 64, (g, w, h) => heather(g, w, h));
     T.cabinet = tex(256, 320, (g, w, h) => {
       fillNoise(g, w, h, [128, 134, 130], 10);
       g.strokeStyle = 'rgba(30,30,30,.7)'; g.lineWidth = 4; g.strokeRect(10, 10, w - 20, h - 20); g.beginPath(); g.moveTo(w / 2, 10); g.lineTo(w / 2, h - 10); g.stroke();
@@ -300,7 +393,7 @@
     M.waspBody = phong(0xffffff, { map: T.waspBody, emissive: 0x2a1c00, shininess: 70 });
     M.wing = new THREE.MeshBasicMaterial({ color: 0xe6f0ff, transparent: true, opacity: 0.45, side: THREE.DoubleSide, depthWrite: false });
     M.nest = phong(0xffffff, { map: T.nest });
-    M.pinFace = new THREE.MeshBasicMaterial({ map: T.pin, side: THREE.DoubleSide });
+    M.pinFace = new THREE.MeshBasicMaterial({ map: T.pin, side: THREE.DoubleSide, alphaTest: 0.5 });
     const add = (color, opacity) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
     M.arcOuter = add(0x4f9cff, 0.75);
     M.arcCore = add(0xf2f8ff, 1);
@@ -326,7 +419,7 @@
     G.barrel = new THREE.CylinderGeometry(0.45, 0.45, 1.15, 16);
     G.band = new THREE.CylinderGeometry(0.47, 0.47, 0.08, 16);
     G.puddle = new THREE.CircleGeometry(1.2, 20);
-    G.pin = new THREE.CircleGeometry(0.46, 28);
+    G.pin = new THREE.PlaneGeometry(1.0, 1.0);
     G.sign = new THREE.PlaneGeometry(1.6, 1.2);
     G.stencil = new THREE.PlaneGeometry(3.6, 0.9);
     G.arrow = new THREE.PlaneGeometry(4.2, 2.1);
@@ -421,22 +514,25 @@
         mk(G.box, o.pants, 0, -0.45, 0, 0.25, 0.9, 0.27, pivot);
         mk(G.box, o.shoe, 0, -0.9, -0.06, 0.27, 0.14, 0.4, pivot);
       } else {
-        mk(G.box, o.sleeve, 0, -0.32, 0, 0.18, 0.66, 0.2, pivot);
+        if (o.short) {
+          mk(G.box, o.sleeve, 0, -0.14, 0, 0.21, 0.3, 0.23, pivot);
+          mk(G.box, o.skin, 0, -0.44, 0, 0.14, 0.46, 0.15, pivot);
+        } else mk(G.box, o.sleeve, 0, -0.32, 0, 0.18, 0.66, 0.2, pivot);
         mk(G.sphere, o.skin, 0, -0.7, 0, 0.09, 0.09, 0.09, pivot);
       }
       return pivot;
     };
     const legL = limb(-0.16, 0.95, true), legR = limb(0.16, 0.95, true);
     const armL = limb(-0.42, 1.68, false), armR = limb(0.42, 1.68, false);
-    return { root, body, torso, headG, legL, legR, armL, armR, phase: Math.random() * 6 };
+    const rest = [headG, legL, legR, armL, armR].map(o => [o, o.position.clone()]);
+    return { root, body, torso, headG, legL, legR, armL, armR, rest, phase: Math.random() * 6 };
   }
   function makeRunner() {
-    const suit = phong(0x2b55c9), skin = phong(0xd9a37c);
-    const h = makeHuman({ torsoMats: [suit, suit, suit, suit, phong(0xffffff, { map: T.back }), suit], skin, pants: suit, sleeve: suit, shoe: phong(0xf2f2f2) });
+    const tee = phong(0xffffff, { map: T.shirt, shininess: 4 }), skin = phong(0xd9a37c);
+    const torso = [tee, tee, tee, tee, phong(0xffffff, { map: T.shirtBack, shininess: 4 }), phong(0xffffff, { map: T.shirtFront, shininess: 4 })];
+    const h = makeHuman({ torsoMats: torso, skin, pants: phong(0x2c3550), sleeve: tee, shoe: phong(0xf2f2f2), short: true });
     const hair = new THREE.Mesh(G.sphere, phong(0x2a1c14)); hair.scale.set(0.225, 0.17, 0.225); hair.position.set(0, 0.07, 0.02); h.headG.add(hair);
     const badge = new THREE.Mesh(G.box, phong(0xffffff)); badge.scale.set(0.1, 0.14, 0.02); badge.position.set(0.12, 1.42, -0.19); h.body.add(badge);
-    const pack = new THREE.Mesh(G.box, phong(0x3a3f45)); pack.scale.set(0.46, 0.5, 0.18); pack.position.set(0, 1.4, 0.26); h.body.add(pack);
-    const patch = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.3), M.pinFace); patch.position.set(0, 1.45, 0.352); h.body.add(patch);
     return h;
   }
   function makeCowboy() {
@@ -489,21 +585,42 @@
     scene.fog = new THREE.Fog(0xcfd9e0, 80, 1500);
     scene.background = new THREE.Color(0xcfd9e0);
   }
-  function archPoints(hw, h, n) {
-    const pts = [];
-    for (let i = 0; i <= n; i++) { const x = -hw + 2 * hw * i / n; pts.push(new THREE.Vector2(x, h * Math.pow(Math.max(0, 1 - (x / hw) * (x / hw)), 0.62))); }
-    return pts;
+  // Hangar One cross-section: steep sides that round over the top. Sampled evenly by arc length,
+  // base -> apex, as (radius, height) pairs so the same profile drives the body and the domed ends.
+  function halfProfile(hw, hh, n, pw) {
+    const dense = [];
+    for (let i = 0; i <= 400; i++) { const x = hw * (1 - i / 400); dense.push([x, hh * (1 - Math.pow(x / hw, pw || 2.4))]); }
+    const cum = [0];
+    for (let i = 1; i < dense.length; i++) cum.push(cum[i - 1] + Math.hypot(dense[i][0] - dense[i - 1][0], dense[i][1] - dense[i - 1][1]));
+    const total = cum[cum.length - 1], out = [];
+    let j = 0;
+    for (let k = 0; k <= n; k++) {
+      const sk = total * k / n;
+      while (j < dense.length - 2 && cum[j + 1] < sk) j++;
+      const t = clamp((sk - cum[j]) / ((cum[j + 1] - cum[j]) || 1), 0, 1);
+      out.push(new THREE.Vector2(lerp(dense[j][0], dense[j + 1][0], t), lerp(dense[j][1], dense[j + 1][1], t)));
+    }
+    out[n].x = 0.0001;
+    return out;
   }
-  function archShell(hw, h, len, mat, th) {
-    const outer = archPoints(hw, h, 48), inner = archPoints(hw - th, h - th, 48).reverse();
-    const shape = new THREE.Shape(outer.concat(inner));
-    const geo = new THREE.ExtrudeGeometry(shape, { depth: len, bevelEnabled: false, steps: 1 });
-    return new THREE.Mesh(geo, mat);
+  // straight arched body from z=0 to z=-len; u runs across the arch, v along the length
+  function archBody(half, len, vTile) {
+    const N = half.length - 1, across = [];
+    for (let k = 0; k <= N; k++) across.push([-half[k].x, half[k].y]);
+    for (let k = N - 1; k >= 0; k--) across.push([half[k].x, half[k].y]);
+    const cols = across.length, pos = [], uv = [], idx = [];
+    for (let j = 0; j < 2; j++) for (let i = 0; i < cols; i++) { pos.push(across[i][0], across[i][1], -j * len); uv.push(i / (cols - 1), j * len / vTile); }
+    for (let i = 0; i < cols - 1; i++) { const a = i, b = i + 1, c = cols + i, d = cols + i + 1; idx.push(a, b, c, b, d, c); }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    geo.setIndex(idx); geo.computeVertexNormals();
+    return geo;
   }
-  function archFace(hw, h, mat, hole) {
-    const shape = new THREE.Shape(archPoints(hw, h, 48));
-    if (hole) shape.holes.push(new THREE.Path(archPoints(hole[0], hole[1], 32)));
-    return new THREE.Mesh(new THREE.ShapeGeometry(shape), mat);
+  function addShell(g, geo, outMat, inMat, x, z) {
+    const o = new THREE.Mesh(geo, outMat); o.position.set(x, 0, z); g.add(o);
+    if (inMat) { const i = new THREE.Mesh(geo, inMat); i.position.set(x, 0, z); g.add(i); }
+    return o;
   }
   function rect(g, mat, x0, x1, z0, z1, y, tile) {
     const w = x1 - x0, d = z0 - z1;
@@ -511,6 +628,120 @@
     const uv = geo.attributes.uv;
     for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * w / tile, uv.getY(i) * d / tile);
     const m = new THREE.Mesh(geo, mat); m.rotation.x = -Math.PI / 2; m.position.set((x0 + x1) / 2, y, (z0 + z1) / 2); g.add(m); return m;
+  }
+  const HW = 45, HH = 60, HLEN = 240, HZF = -RAMP_B - HW - 2; // Hangar One, in meters: ~94 wide, 60 tall, 345 long
+  function buildHangarOne(g) {
+    const half = halfProfile(HW, HH, 48);
+    const skin = phong(0xffffff, { map: T.hangarSkin, shininess: 30, specular: 0x2a2a2a });
+    const doorSkin = phong(0xffffff, { map: T.hangarDoor, shininess: 30, specular: 0x2a2a2a });
+    const inside = new THREE.MeshLambertMaterial({ color: 0x24272a, side: THREE.BackSide });
+    addShell(g, archBody(half, HLEN, 16), skin, inside, 0, HZF);
+    // "orange peel" ends: quarter domes that rotate around the end to open. The left front leaf is open, like the photo.
+    const OPEN = 0.78;
+    const leaf = (phi0, phiLen, rotY, z, sc) => {
+      const geo = new THREE.LatheGeometry(half, 20, phi0, phiLen);
+      for (const m of [doorSkin, inside]) { const l = new THREE.Mesh(geo, m); l.position.set(0, 0, z); l.rotation.y = rotY; l.scale.set(sc, 1.004, sc); g.add(l); }
+    };
+    leaf(0, Math.PI / 2, 0, HZF, 1);
+    leaf(-Math.PI / 2, Math.PI / 2, -OPEN, HZF, 1.012);
+    leaf(Math.PI / 2, Math.PI, 0, HZF - HLEN, 1);
+    // ridge walkway and the door track at the joint
+    const ridgeMat = phong(0xcfd3d2);
+    const ridge = new THREE.Mesh(G.box, ridgeMat); ridge.scale.set(3.2, 1.6, HLEN); ridge.position.set(0, HH + 0.6, HZF - HLEN / 2); g.add(ridge);
+    const trackPts = half.map(p => new V3(p.x * 1.004, p.y, HZF));
+    const trackMat = phong(0xa9aeac);
+    for (const sgn of [-1, 1]) g.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(trackPts.map(p => new V3(p.x * sgn, p.y, p.z))), 48, 0.5, 5, false), trackMat));
+    // dark floor inside
+    const floorMat = new THREE.MeshLambertMaterial({ color: 0x2c2e30 });
+    rect(g, floorMat, -HW + 0.5, HW - 0.5, HZF, HZF - HLEN, 0.12, 20);
+    for (const z of [HZF, HZF - HLEN]) { const c = new THREE.Mesh(new THREE.CircleGeometry(HW - 0.5, 40), floorMat); c.rotation.x = -Math.PI / 2; c.position.set(0, 0.12, z); g.add(c); }
+    // the little control tower beside the hangar
+    const tw = new THREE.Group(); tw.position.set(HW + 18, 0, HZF + 4); g.add(tw);
+    const beige = phong(0xe2d6bd);
+    addMesh(tw, G.cyl, beige, 0, 7, 0, 2.6, 14, 2.6);
+    addMesh(tw, G.cyl, phong(0x33414a, { shininess: 90 }), 0, 15.2, 0, 3.4, 2.4, 3.4);
+    addMesh(tw, G.cyl, beige, 0, 16.7, 0, 3.8, 0.6, 3.8);
+    addMesh(tw, G.box, phong(0xece6d6), 6, 3, 2, 8, 6, 16);
+  }
+  function makeP3() {
+    const p = new THREE.Group();
+    const white = phong(0xf2f3f1, { shininess: 50 }), grey = phong(0x9ba3a8), dark = phong(0x1e2328, { shininess: 90 });
+    const propMat = new THREE.MeshBasicMaterial({ color: 0x30343a, transparent: true, opacity: 0.45, depthWrite: false });
+    const fus = addMesh(p, G.cyl, white, 0, 2.6, 0, 1.7, 26, 1.7); fus.rotation.x = Math.PI / 2;
+    const nose = addMesh(p, G.sphere, white, 0, 2.6, -13, 1.7, 1.7, 3.4);
+    const cock = addMesh(p, G.box, dark, 0, 3.4, -13.6, 2.2, 0.6, 1.6); cock.rotation.x = 0.4;
+    const tail = new THREE.Mesh(new THREE.CylinderGeometry(1.7, 0.45, 8, 14), white); tail.rotation.x = -Math.PI / 2; tail.position.set(0, 2.9, 17); p.add(tail);
+    const mad = addMesh(p, G.cyl, grey, 0, 3.1, 23, 0.25, 4, 0.25); mad.rotation.x = Math.PI / 2;
+    addMesh(p, G.box, white, 0, 2.2, -2, 30, 0.45, 4.2);
+    for (const x of [-9.5, -4.6, 4.6, 9.5]) {
+      const n = addMesh(p, G.cyl, white, x, 2.2, -3.6, 0.65, 5.5, 0.65); n.rotation.x = Math.PI / 2;
+      const prop = addMesh(p, G.cyl, propMat, x, 2.2, -6.5, 1.8, 0.06, 1.8); prop.rotation.x = Math.PI / 2;
+    }
+    const fin = addMesh(p, G.box, white, 0, 6.6, 18.4, 0.35, 6.2, 5); fin.rotation.x = -0.35;
+    addMesh(p, G.box, white, 0, 3.6, 19.5, 12.5, 0.3, 3);
+    for (const [x, z] of [[-4.6, -1.5], [4.6, -1.5], [0, -10]]) addMesh(p, G.box, dark, x, 0.6, z, 0.4, 1.2, 0.6);
+    return p;
+  }
+  function buildAirfield(g) {
+    // concrete apron all around and behind the hangar, with runways and P-3s beyond
+    const conc = phong(0xffffff, { map: T.concrete });
+    rect(g, conc, -140, 520, -56, -1400, 0.05, 16);
+    const asphalt = phong(0xffffff, { map: T.tarmac });
+    const white = new THREE.MeshBasicMaterial({ color: 0xe9e9e4 }), yel = new THREE.MeshBasicMaterial({ color: 0xe0b100 });
+    for (const rx of [250, 340]) {
+      rect(g, asphalt, rx - 23, rx + 23, -120, -2600, 0.1, 14);
+      for (let z = -150; z > -2600; z -= 40) { const d = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 18), white); d.rotation.x = -Math.PI / 2; d.position.set(rx, 0.16, z); g.add(d); }
+      for (const sx of [-21, 21]) { const e = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 2480), white); e.rotation.x = -Math.PI / 2; e.position.set(rx + sx, 0.16, -1360); g.add(e); }
+    }
+    for (const [x0, x1, z] of [[60, 227, -450], [60, 227, -800]]) { // taxiways
+      rect(g, asphalt, x0, x1, z + 11, z - 11, 0.1, 14);
+      const c = new THREE.Mesh(new THREE.PlaneGeometry(x1 - x0, 0.5), yel); c.rotation.x = -Math.PI / 2; c.position.set((x0 + x1) / 2, 0.16, z); g.add(c);
+    }
+    const planes = [[95, -150, 0.3], [130, -205, 0.3], [70, -420, Math.PI / 2], [0, -470, Math.PI * 0.95], [150, -330, 0.3], [-70, -440, -Math.PI / 2]];
+    for (const [x, z, r] of planes) { const p = makeP3(); p.position.set(x, 0, z); p.rotation.y = r; g.add(p); }
+    const tugMat = phong(0xe8b400);
+    for (let i = 0; i < 9; i++) addMesh(g, G.box, tugMat, 30 + i * 6.5, 0.6, -420 + (i % 3) * 3, 2.4, 1.2, 3.6);
+    // Hangars 2 and 3 across the field
+    const h2 = halfProfile(26, 34, 32, 2.0), mat2 = phong(0xa4a9a7, { map: T.metal2 }), in2 = new THREE.MeshLambertMaterial({ color: 0x2a2c2e, side: THREE.BackSide });
+    for (const x of [470, 545]) {
+      addShell(g, archBody(h2, 300, 12), mat2, in2, x, -380);
+      for (const z of [-380, -680]) { const f = new THREE.Mesh(new THREE.ShapeGeometry(new THREE.Shape(h2.map(p => new THREE.Vector2(p.x, p.y)).concat(h2.slice().reverse().map(p => new THREE.Vector2(-p.x, p.y))))), mat2); f.position.set(x, 0, z); g.add(f); }
+    }
+  }
+  function buildCampus(g) {
+    // NASA Ames side: parking lots, beige buildings, trees, the pressure spheres, the 80x120 wind tunnel
+    const carGeo = new THREE.BoxGeometry(1.9, 1.4, 4.4);
+    const lots = [[-58, -14, 40, -40], [18, 60, 40, -34], [-60, -20, 120, 60]];
+    let n = 0; const cars = new THREE.InstancedMesh(carGeo, phong(0xffffff, { shininess: 70 }), 360);
+    const dm = new THREE.Object3D(), palette = [0xb8bcc0, 0x2b2f36, 0xf0f0ee, 0x8f1d1d, 0x24467a, 0x5d6b73, 0xc9b38a, 0x9a2b2b, 0x3c5a3e];
+    for (const [x0, x1, z0, z1] of lots) {
+      for (let x = x0; x <= x1; x += 6.5) for (let z = z0; z >= z1; z -= 2.8) {
+        if (Math.random() < 0.25 || n >= 360) continue;
+        dm.position.set(x, 0.75, z); dm.rotation.set(0, Math.PI / 2 + rand(-0.06, 0.06), 0); dm.updateMatrix();
+        cars.setMatrixAt(n, dm.matrix); cars.setColorAt(n, new THREE.Color(pick(palette))); n++;
+      }
+    }
+    cars.count = n; g.add(cars);
+    const beige = phong(0xffffff, { map: T.windows }), flat = phong(0xd9cfb9);
+    for (const [x, z, w, h, d] of [[-95, -10, 40, 14, 30], [-140, -90, 60, 18, 34], [-110, 75, 34, 10, 26], [-190, 10, 36, 16, 44], [95, 70, 44, 12, 30], [80, 10, 26, 9, 20], [-75, 140, 50, 12, 24]]) {
+      addMesh(g, G.box, [beige, beige, flat, flat, beige, beige], x, h / 2, z, w, h, d);
+    }
+    // the long arched wind-tunnel building behind the campus
+    const h3 = halfProfile(22, 20, 24, 2.0);
+    addShell(g, archBody(h3, 150, 12), phong(0xd0d2cf, { map: T.metal2 }), null, -150, -170);
+    const sph = phong(0xe8eaea, { shininess: 80, specular: 0x555555 });
+    for (let i = 0; i < 3; i++) addMesh(g, G.sphere, sph, -230 - i * 30, 14, -40, 13, 13, 13);
+    const dish = new THREE.Mesh(new THREE.SphereGeometry(6, 16, 8, 0, Math.PI * 2, 0, 0.9), new THREE.MeshPhongMaterial({ color: 0xf2f2f2, side: THREE.DoubleSide }));
+    dish.position.set(-120, 18, -60); dish.rotation.x = -1.1; g.add(dish);
+    const nfac = new THREE.Mesh(G.box, [phong(0x9a9c98), phong(0x9a9c98), phong(0x9a9c98), phong(0x9a9c98), phong(0xffffff, { map: T.louver }), phong(0x9a9c98)]);
+    nfac.scale.set(260, 45, 60); nfac.position.set(-360, 22.5, -560); g.add(nfac);
+    const trees = new THREE.InstancedMesh(G.sphere, phong(0x3f6b3a), 70);
+    for (let i = 0; i < 70; i++) {
+      const x = rand(-260, -14) * (Math.random() < 0.25 ? -0.5 : 1), z = rand(-120, 160);
+      if (Math.abs(x) < 12) { dm.position.set(-30, -50, 0); } else dm.position.set(x, rand(3, 5), z);
+      const s = rand(3, 5.5); dm.scale.set(s, s * 1.1, s); dm.rotation.set(0, 0, 0); dm.updateMatrix(); trees.setMatrixAt(i, dm.matrix);
+    }
+    g.add(trees);
   }
   function buildOutdoor() {
     const g = new THREE.Group();
@@ -525,18 +756,7 @@
     const yellow = new THREE.MeshBasicMaterial({ color: 0xe8b800 });
     for (const s of [-1, 1]) { const l = new THREE.Mesh(new THREE.PlaneGeometry(0.25, 100), yellow); l.rotation.x = -Math.PI / 2; l.position.set(s * 6.2, 0.02, 30); g.add(l); }
 
-    // Hangar One: 90 wide, 60 tall, 300 long here (squashed for gameplay). Doors stay shut;
-    // the tunnel dives under the front wall.
-    const metal = phong(0xd6dcd6, { map: T.metal, side: THREE.DoubleSide, shininess: 40, specular: 0x333333 });
-    const shell = archShell(45, 60, 300, metal, 1.2); shell.position.z = HANGAR_Z - 300; g.add(shell);
-    const front = archFace(45, 60, metal); front.position.z = HANGAR_Z; g.add(front);
-    const back = archFace(45, 60, metal); back.position.z = HANGAR_Z - 300; g.add(back);
-    // closed clamshell doors: frame + center seam on the front face
-    const frameMat = phong(0x5d625f, { shininess: 30 });
-    const ribPts = archPoints(28, 46, 40).map(p => new V3(p.x, p.y, HANGAR_Z + 0.5));
-    g.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(ribPts), 60, 0.7, 6, false), frameMat));
-    const seam = new THREE.Mesh(G.box, frameMat); seam.scale.set(0.6, 46, 0.6); seam.position.set(0, 23, HANGAR_Z + 0.5); g.add(seam);
-    for (const x of [-14, 14]) { const sm = new THREE.Mesh(G.box, frameMat); sm.scale.set(0.4, 40, 0.4); sm.position.set(x, 20, HANGAR_Z + 0.5); g.add(sm); }
+    buildHangarOne(g);
     // trench walls, rails, headwall
     const wallT = phong(0xffffff, { map: T.wall });
     for (const s of [-1, 1]) {
@@ -567,19 +787,8 @@
     const sbox = new THREE.Mesh(G.box, [M.beam, M.beam, M.beam, M.beam, new THREE.MeshPhongMaterial({ map: signFace }), M.beam]);
     sbox.scale.set(7, 2.6, 0.5); sbox.position.y = 1.7; signG.add(sbox);
     const base = new THREE.Mesh(G.box, phong(0x6b6256)); base.scale.set(7.6, 0.5, 1); base.position.y = 0.25; signG.add(base);
-    // Hangars 2 and 3
-    const metalB = phong(0x9da29c, { map: T.metal2, side: THREE.DoubleSide });
-    for (const [x, z] of [[150, -60], [215, -60]]) {
-      const s2 = archShell(24, 34, 200, metalB, 1); s2.position.set(x, 0, z - 200); g.add(s2);
-      const f2 = archFace(24, 34, metalB); f2.position.set(x, 0, z); g.add(f2);
-    }
-    // research buildings and the big wind tunnel intake
-    const winMat = phong(0xffffff, { map: T.windows });
-    for (const [x, z, w, h, d] of [[-90, -40, 40, 14, 30], [-150, -110, 60, 20, 30], [-110, 60, 30, 10, 26], [-200, -10, 36, 16, 40], [110, 80, 40, 12, 30]]) {
-      const b = new THREE.Mesh(G.box, winMat); b.scale.set(w, h, d); b.position.set(x, h / 2, z); g.add(b);
-    }
-    const nfac = new THREE.Mesh(G.box, [phong(0x9a9c98), phong(0x9a9c98), phong(0x9a9c98), phong(0x9a9c98), phong(0xffffff, { map: T.louver }), phong(0x9a9c98)]);
-    nfac.scale.set(260, 45, 60); nfac.position.set(-330, 22.5, -520); g.add(nfac);
+    buildAirfield(g);
+    buildCampus(g);
     // distant hills
     const hillMat = phong(0x6e7f7c, { shininess: 0 });
     for (const [x, z, sx, sy] of [[-900, -1300, 500, 160], [-300, -1450, 600, 220], [400, -1400, 520, 180], [1000, -1200, 480, 140], [-1300, -600, 300, 120]]) {
@@ -953,7 +1162,7 @@
   let P, C, runner, cowboy, history, clock = 0, deathT = 0, deathCause = '', shake = 0, best = store.get('hor.best', 0);
   const hinted = new Set();
   const camPos = new V3(), camLook = new V3(), tmp = new V3(), tmp2 = new V3();
-  let camYaw = 0;
+  let camYaw = 0, deathCamSide = 1;
 
   function resetWorld() {
     segs.forEach(disposeSegment); segs = [];
@@ -965,7 +1174,7 @@
     ensureSegments();
     outdoor.visible = true; sky.visible = true;
     runner.root.visible = true; cowboy.root.visible = true;
-    runner.body.rotation.set(0, 0, 0); runner.body.position.set(0, 0, 0);
+    restorePose(runner);
     clock = 0; camYaw = 0; shake = 0;
     updateCharacters(0);
     updateHud();
@@ -1004,7 +1213,7 @@
   }
 
   function stumble() {
-    if (P.stumbleT > 0 && !GOD) { die('caught'); return; }
+    if (P.stumbleT > 0 && !GOD) { die('caught', 'caught'); return; }
     P.stumbleT = 7; P.slowT = 0.5; shake = 0.35;
     AU.stumble(); setTimeout(() => AU.yeehaw(), 120);
     el.yeehaw.classList.add('show'); setTimeout(() => el.yeehaw.classList.remove('show'), 1100);
@@ -1032,10 +1241,11 @@
     wall: ['Splat', 'You missed the turn and ran into a tunnel wall.', () => { AU.thud(); flash('#ffffff', 0.5, 0.5); shake = 0.8; }],
     caught: ['Caught', 'The cowboy got his lasso around you. Yeehaw.', () => { AU.yeehaw(); AU.thud(); flash('#fc3d21', 0.45, 0.8); }]
   };
-  function die(cause) {
+  function die(cause, hit) {
     if (GOD) { if (cause === 'trip') stumble(); return; }
     if (state !== 'play') return;
     state = 'dead'; deathT = 0; deathCause = cause;
+    startRagdoll(cause, hit || 'full');
     DEATHS[cause][2]();
     C.target = cause === 'caught' ? 1.2 : 1.8;
     AU.levels(0, 0, 0, 0.04);
@@ -1105,7 +1315,7 @@
     const L = P.seg.L;
     if (GOD && P.d > L - 2) P.queuedTurn = true;
     if (P.queuedTurn && P.d >= L - W / 2 + 0.8) doTurn();
-    else if (P.d > L + W / 2 - 0.7) { die('wall'); P.d = L + W / 2 - 0.7; return; }
+    else if (P.d > L + W / 2 - 0.7) { P.d = L + W / 2 - 0.7; die('wall', 'wall'); return; }
     if (!hinted.has('turn') && P.seg.index === 0 && P.d > L - 34 && P.d < L - 20) { hinted.add('turn'); toast(P.seg.turn < 0 ? '← Turn left at the junction' : 'Turn right at the junction →', 1800); }
 
     // obstacles
@@ -1115,9 +1325,9 @@
       if (o.done || Math.abs(dz) > o.depth / 2 + 0.35) continue;
       for (const b of o.boxes) {
         if (Math.abs(P.x - b.cx) >= b.hw + 0.4) continue;
-        if (b.kind === 'low' && P.h < b.clear) { die(o.cause); return; }
-        if (b.kind === 'high' && !P.sliding) { die(o.cause); return; }
-        if (b.kind === 'full') { die(o.cause); return; }
+        if (b.kind === 'low' && P.h < b.clear) { die(o.cause, 'low'); return; }
+        if (b.kind === 'high' && !P.sliding) { die(o.cause, 'high'); return; }
+        if (b.kind === 'full') { die(o.cause, 'full'); return; }
         if (b.kind === 'trip' && P.h < b.clear) { o.done = true; stumble(); if (state !== 'play') return; }
       }
     }
@@ -1181,6 +1391,10 @@
     historyAt(P.total - C.gap, chaserPos);
     cowboy.root.position.set(chaserPos.x, chaserPos.y, chaserPos.z);
     cowboy.root.rotation.y = chaserPos.yaw;
+    if (state === 'dead' || state === 'over') {
+      const R = RIGHT(P.seg.dir), k = smooth(Math.min(1, deathT / 0.8)) * 1.6 * -deathCamSide;
+      cowboy.root.position.x += R.x * k; cowboy.root.position.z += R.z * k;
+    }
     const close = C.gap < 7 || state !== 'play';
     cowboy.root.visible = C.gap < 12 || state !== 'play';
     const moving = state === 'play' || (state === 'dead' && Math.abs(C.gap - C.target) > 0.1);
@@ -1192,14 +1406,140 @@
   function updateDead(dt) {
     deathT += dt;
     C.gap += (C.target - C.gap) * damp(1.6, dt);
-    const k = Math.min(1, deathT * 3);
-    if (deathCause === 'zap') runner.body.visible = Math.random() > 0.3 || deathT > 1;
-    else runner.body.visible = true;
-    runner.body.rotation.x = lerp(runner.body.rotation.x, deathCause === 'wall' ? 0.9 : -1.45, k * 0.2);
-    runner.body.position.y = lerp(runner.body.position.y, deathCause === 'wall' ? -0.4 : -0.75, k * 0.2);
-    if (deathCause === 'caught') { runner.body.rotation.x = lerp(runner.body.rotation.x, 0, k * 0.3); runner.body.position.y = lerp(runner.body.position.y, 0, k * 0.3); runner.armL.rotation.x = runner.armR.rotation.x = 0.1; }
-    if (P.h > 0) { P.vy -= GRAV * dt; P.h = Math.max(0, P.h + P.vy * dt); }
-    if (deathT > 1.7) showGameOver();
+    runner.body.visible = deathCause !== 'zap' || deathT > 1 || Math.random() > 0.3;
+    if (rag) { stepRagdoll(dt); applyRagdoll(); }
+    if (state === 'dead' && deathT > 1.9) showGameOver();
+  }
+
+  // ---------- ragdoll: verlet points + stick constraints, posed back onto the rig
+  const RAG_LINKS = [['head', 'neck'], ['head', 'shL'], ['head', 'shR'], ['neck', 'pelvis'], ['shL', 'shR'], ['shL', 'neck'], ['shR', 'neck'],
+    ['hipL', 'hipR'], ['hipL', 'pelvis'], ['hipR', 'pelvis'], ['shL', 'hipL'], ['shR', 'hipR'], ['shL', 'hipR'], ['shR', 'hipL'],
+    ['neck', 'hipL'], ['neck', 'hipR'], ['head', 'pelvis'], ['shL', 'haL'], ['shR', 'haR'], ['hipL', 'ftL'], ['hipR', 'ftR']];
+  const RAG_R = { head: 0.21, neck: 0.17, pelvis: 0.17, shL: 0.12, shR: 0.12, haL: 0.09, haR: 0.09, hipL: 0.13, hipR: 0.13, ftL: 0.08, ftR: 0.08 };
+  const RAG_H = 1 / 120;
+  let rag = null;
+  function startRagdoll(cause, hit) {
+    const h = runner;
+    h.root.updateMatrixWorld(true);
+    const at = (o, x, y, z) => o.localToWorld(new V3(x, y, z));
+    const pos = { head: at(h.headG, 0, 0, 0), neck: at(h.body, 0, 1.7, 0), pelvis: at(h.body, 0, 0.95, 0),
+      shL: at(h.armL, 0, 0, 0), shR: at(h.armR, 0, 0, 0), haL: at(h.armL, 0, -0.7, 0), haR: at(h.armR, 0, -0.7, 0),
+      hipL: at(h.legL, 0, 0, 0), hipR: at(h.legR, 0, 0, 0), ftL: at(h.legL, 0, -0.9, 0), ftR: at(h.legR, 0, -0.9, 0) };
+    const f = DIRS[P.seg.dir], r = RIGHT(P.seg.dir), sp = P.speed, vy0 = P.grounded ? 0 : P.vy;
+    const side = rand(-1, 1);
+    const pts = {};
+    for (const n in pos) {
+      const upper = /^(head|neck|sh|ha)/.test(n), foot = /^ft/.test(n);
+      const v = new V3().copy(f).multiplyScalar(sp * 0.55); v.y = vy0;
+      if (hit === 'wall') { v.copy(f).multiplyScalar(upper ? -5.5 : -3); v.y = 2.5; }
+      else if (hit === 'caught') { v.copy(f).multiplyScalar(-3.5); v.y = upper ? 5 : 3.5; }
+      else if (cause === 'gas') { v.copy(f).multiplyScalar(upper ? sp * 0.3 : sp * 0.15); v.y = 0.3; }
+      else if (hit === 'low') { if (foot) v.multiplyScalar(0.05); else if (upper) { v.addScaledVector(f, 2.5); v.y += 1.2; } }
+      else if (hit === 'high') { if (upper) { v.copy(f).multiplyScalar(-2.5); v.y = 1.2; } else { v.multiplyScalar(1.1); v.y += foot ? 4.5 : 2.5; } }
+      else if (cause === 'wasp') { v.multiplyScalar(0.35); v.y += upper ? 2.5 : 1; v.addScaledVector(r, rand(-2, 2)); }
+      else { v.copy(f).multiplyScalar(upper ? -4 : -2); v.y = upper ? 2.5 : 1.5; } // ran into something solid
+      if (cause === 'zap') v.y += 3;
+      v.addScaledVector(r, side * (upper ? 1.2 : 0.4));
+      pts[n] = { p: pos[n], q: pos[n].clone().addScaledVector(v, -RAG_H), r: RAG_R[n] };
+    }
+    const links = RAG_LINKS.map(([a, b]) => [pts[a], pts[b], pos[a].distanceTo(pos[b])]);
+    rag = { pts, links, acc: 0, cause };
+  }
+  function stepRagdoll(dt) {
+    rag.acc += dt;
+    while (rag.acc >= RAG_H) {
+      rag.acc -= RAG_H;
+      const twitch = rag.cause === 'zap' && deathT < 0.9 ? 0.025 : 0;
+      for (const n in rag.pts) {
+        const o = rag.pts[n], p = o.p, q = o.q;
+        const vx = (p.x - q.x) * 0.998, vy = (p.y - q.y) * 0.998, vz = (p.z - q.z) * 0.998;
+        q.copy(p);
+        p.x += vx; p.y += vy - GRAV * RAG_H * RAG_H; p.z += vz;
+        if (twitch) { p.x += rand(-twitch, twitch); p.y += rand(0, twitch); p.z += rand(-twitch, twitch); }
+      }
+      for (let it = 0; it < 8; it++) {
+        for (const [a, b, rest] of rag.links) {
+          const dx = b.p.x - a.p.x, dy = b.p.y - a.p.y, dz = b.p.z - a.p.z;
+          const d = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1e-6, k = (d - rest) / d * 0.5;
+          a.p.x += dx * k; a.p.y += dy * k; a.p.z += dz * k;
+          b.p.x -= dx * k; b.p.y -= dy * k; b.p.z -= dz * k;
+        }
+        for (const n in rag.pts) ragCollide(rag.pts[n]);
+      }
+    }
+  }
+  // keep a point inside the tunnel: floor, ceiling, side walls and the end wall
+  function ragCollide(o) {
+    const seg = P.seg, D = DIRS[seg.dir], R = RIGHT(seg.dir), p = o.p, q = o.q, r = o.r;
+    const rx = p.x - seg.start.x, rz = p.z - seg.start.z;
+    let d = rx * D.x + rz * D.z, lat = rx * R.x + rz * R.z;
+    const walls = seg.index !== 0 || d >= RAMP_A, roof = seg.index !== 0 || d >= RAMP_B;
+    let moved = false;
+    if (walls) {
+      const lim = W / 2 - r;
+      if (d < seg.L - W / 2) { if (lat > lim) { lat = lim; moved = true; } else if (lat < -lim) { lat = -lim; moved = true; } }
+      else { const closed = -seg.turn; if (lat * closed > lim) { lat = closed * lim; moved = true; } }
+      if (d > seg.L + W / 2 - r) { d = seg.L + W / 2 - r; moved = true; }
+    }
+    // solid switchgear cabinets
+    for (const ob of seg.obstacles) {
+      if (ob.type !== 'panel' || Math.abs(d - ob.d) > 0.55 + r + 0.2 || p.y > TY + 3.1 + r) continue;
+      for (const bx of ob.boxes) {
+        const pd = 0.55 + r - Math.abs(d - ob.d), pl = 1.15 + r - Math.abs(lat - bx.cx), py = TY + 3.1 + r - p.y;
+        if (pd <= 0 || pl <= 0 || py <= 0) continue;
+        if (py < pd && py < pl) { const vy = p.y - q.y; p.y += py; q.y = p.y + vy * 0.2; }
+        else if (pd < pl) { d += d < ob.d ? -pd : pd; moved = true; }
+        else { lat += lat < bx.cx ? -pl : pl; moved = true; }
+      }
+    }
+    if (moved) {
+      const vx = p.x - q.x, vz = p.z - q.z;
+      p.x = seg.start.x + D.x * d + R.x * lat; p.z = seg.start.z + D.z * d + R.z * lat;
+      q.x = p.x - vx * 0.4; q.z = p.z - vz * 0.4;
+    }
+    const gy = groundY(seg, clamp(d, 0, seg.L + W)) + r;
+    if (p.y < gy) {
+      const vy = p.y - q.y;
+      p.y = gy; q.y = gy + vy * 0.25;
+      q.x = lerp(q.x, p.x, 0.05); q.z = lerp(q.z, p.z, 0.05);
+    }
+    if (roof && p.y > TY + H - r) { const vy = p.y - q.y; p.y = TY + H - r; q.y = p.y + vy * 0.3; }
+  }
+  const rM = new THREE.Matrix4(), rM2 = new THREE.Matrix4(), rInv = new THREE.Matrix4(), rS = new V3();
+  const rUp = new V3(), rRight = new V3(), rBack = new V3(), rY = new V3(), rX = new V3(), rZ = new V3();
+  function setWorld(obj, parentInv, M) { rM2.multiplyMatrices(parentInv, M); rM2.decompose(obj.position, obj.quaternion, rS); }
+  function applyRagdoll() {
+    const h = runner, P_ = n => rag.pts[n].p;
+    const shMid = P_('shL').clone().add(P_('shR')).multiplyScalar(0.5);
+    const hipMid = P_('hipL').clone().add(P_('hipR')).multiplyScalar(0.5);
+    rUp.subVectors(shMid, hipMid).normalize();
+    rRight.subVectors(P_('shR'), P_('shL')).add(tmp.subVectors(P_('hipR'), P_('hipL')));
+    rRight.addScaledVector(rUp, -rRight.dot(rUp)).normalize();
+    rBack.crossVectors(rRight, rUp);
+    // body: local (0, 0.95, 0) sits on the pelvis point
+    const bodyW = new THREE.Matrix4().makeBasis(rRight, rUp, rBack);
+    bodyW.setPosition(P_('pelvis').clone().addScaledVector(rUp, -0.95));
+    h.root.updateMatrixWorld(true);
+    rInv.copy(h.root.matrixWorld).invert();
+    setWorld(h.body, rInv, bodyW);
+    const bodyInv = rInv.copy(bodyW).invert();
+    // head follows the neck-to-head direction
+    rY.subVectors(P_('head'), P_('neck')).normalize();
+    rX.copy(rRight).addScaledVector(rY, -rRight.dot(rY)).normalize(); rZ.crossVectors(rX, rY);
+    rM.makeBasis(rX, rY, rZ).setPosition(P_('head')); setWorld(h.headG, bodyInv, rM);
+    // each limb pivot points from its joint towards the hand / foot
+    for (const [obj, j, e] of [[h.armL, 'shL', 'haL'], [h.armR, 'shR', 'haR'], [h.legL, 'hipL', 'ftL'], [h.legR, 'hipR', 'ftR']]) {
+      rY.subVectors(P_(j), P_(e)).normalize();
+      rX.copy(rRight).addScaledVector(rY, -rRight.dot(rY));
+      if (rX.lengthSq() < 1e-6) rX.copy(rBack);
+      rX.normalize(); rZ.crossVectors(rX, rY);
+      rM.makeBasis(rX, rY, rZ).setPosition(P_(j)); setWorld(obj, bodyInv, rM);
+    }
+  }
+  function restorePose(h) {
+    rag = null;
+    h.body.position.set(0, 0, 0); h.body.rotation.set(0, 0, 0); h.body.visible = true;
+    for (const [o, p] of h.rest) { o.position.copy(p); o.rotation.set(0, 0, 0); }
   }
 
   // camera
@@ -1215,13 +1555,23 @@
     camYaw = lerpAngle(camYaw, ty, damp(state === 'play' ? 6 : 2, dt));
     const fx = -Math.sin(camYaw), fz = -Math.cos(camYaw);
     const base = segWorld(P.seg, P.d, P.x * 0.55, groundY(P.seg, P.d) + P.h * 0.45, tmp2);
+    if (rag) { base.copy(rag.pts.pelvis.p); base.y = Math.max(groundY(P.seg, P.d), base.y - 0.6); }
     let want = new V3(base.x - fx * 6.4, base.y + 4.9, base.z - fz * 6.4);
     let look = new V3(base.x + fx * 8, base.y + 0.9, base.z + fz * 8);
     if (state === 'dead' || state === 'over') {
-      const t = Math.min(1, deathT / 1.2), rx = -fz, rz = fx;
-      const front = new V3(base.x + fx * 5.2 + rx * 1.8, base.y + 2.6, base.z + fz * 5.2 + rz * 1.8);
-      want.lerp(front, smooth(t));
-      look.lerp(new V3(base.x - fx * 1.2, base.y + 0.8, base.z - fz * 1.2), smooth(t));
+      // elevated three-quarter view from behind, kept inside the tunnel
+      const t = smooth(Math.min(1, deathT / 1.2)), seg = P.seg, D = DIRS[seg.dir], R = RIGHT(seg.dir);
+      const rx = base.x - seg.start.x, rz = base.z - seg.start.z;
+      const bd = rx * D.x + rz * D.z, bl = rx * R.x + rz * R.z;
+      const cl = clamp(bl + (bl > 0 ? -2.4 : 2.4), -(W / 2 - 0.7), W / 2 - 0.7);
+      deathCamSide = Math.sign(cl - bl) || 1;
+      const cd = Math.max(bd - 3.4, seg.index === 0 ? 0 : -W / 2 + 0.7);
+      const gy = groundY(seg, cd), cy = Math.min(base.y + 3.6, seg.index === 0 && cd < RAMP_B ? 99 : TY + H - 0.4);
+      want.lerp(segWorld(seg, cd, cl, Math.max(gy + 1.5, cy), tmp), t);
+      // on wide screens the game-over panel covers the left, so frame the body right of center
+      const vd = tmp.clone().sub(base), rgt = new V3(-vd.z, 0, vd.x).normalize();
+      const off = camera.aspect > 1.1 ? 1.5 : 0;
+      look.lerp(new V3(base.x + rgt.x * off, base.y + 0.2, base.z + rgt.z * off), t);
     }
     if (camPos.lengthSq() === 0 || camPos.distanceTo(want) > 60) camPos.copy(want); else camPos.lerp(want, damp(state === 'play' ? 12 : 4, dt));
     if (camLook.lengthSq() === 0 || camLook.distanceTo(look) > 60) camLook.copy(look); else camLook.lerp(look, damp(14, dt));
@@ -1243,7 +1593,7 @@
     hemi.color.setHex(0xdfeaff).lerp(new THREE.Color(0xffe2b8), e);
     sun.intensity = lerp(0.9, 0, e);
     playerLight.intensity = lerp(0, 1.5, e);
-    const under = e >= 0.999 && P && P.seg.index > 0;
+    const under = e >= 0.999 && P && (P.seg.index > 0 || P.d > RAMP_B + 10);
     outdoor.visible = !under; sky.visible = !under;
     sky.material.opacity = 1;
     AU.levels(AU.buzzLvl || 0, AU.hissLvl || 0, AU.humLvl || 0, 0.05 * e);
@@ -1367,7 +1717,7 @@
     el.loading.hidden = true;
     last = performance.now();
     requestAnimationFrame(frame);
-    window.__hor = { get state() { return state; }, get P() { return P; }, get C() { return C; }, get segs() { return segs; }, input, renderer, teleport(seg, d, lane) { P.seg = seg; P.d = d; P.lane = lane == null ? 1 : lane; P.x = P.tx = LANES[P.lane]; P.queuedTurn = false; ensureSegments(); camPos.set(0, 0, 0); camLook.set(0, 0, 0); } };
+    window.__hor = { get state() { return state; }, get P() { return P; }, get C() { return C; }, get rag() { return rag; }, get segs() { return segs; }, input, renderer, scene, camera, teleport(seg, d, lane) { P.seg = seg; P.d = d; P.lane = lane == null ? 1 : lane; P.x = P.tx = LANES[P.lane]; P.queuedTurn = false; ensureSegments(); camPos.set(0, 0, 0); camLook.set(0, 0, 0); } };
   }
   boot();
 })();
