@@ -511,8 +511,11 @@
     const limb = (x, y, legs) => {
       const pivot = new THREE.Group(); pivot.position.set(x, y, 0); body.add(pivot);
       if (legs) {
-        mk(G.box, o.pants, 0, -0.45, 0, 0.25, 0.9, 0.27, pivot);
-        mk(G.box, o.shoe, 0, -0.9, -0.06, 0.27, 0.14, 0.4, pivot);
+        mk(G.box, o.pants, 0, -0.23, 0, 0.25, 0.48, 0.27, pivot);
+        const knee = new THREE.Group(); knee.position.set(0, -0.46, 0); pivot.add(knee);
+        mk(G.box, o.pants, 0, -0.22, 0, 0.23, 0.46, 0.25, knee);
+        mk(G.box, o.shoe, 0, -0.44, -0.06, 0.27, 0.14, 0.4, knee);
+        pivot.knee = knee;
       } else {
         if (o.short) {
           mk(G.box, o.sleeve, 0, -0.14, 0, 0.21, 0.3, 0.23, pivot);
@@ -522,26 +525,26 @@
       }
       return pivot;
     };
-    const legL = limb(-0.16, 0.95, true), legR = limb(0.16, 0.95, true);
+    const legL = limb(-0.17, 0.95, true), legR = limb(0.17, 0.95, true);
     const armL = limb(-0.42, 1.68, false), armR = limb(0.42, 1.68, false);
-    const rest = [headG, legL, legR, armL, armR].map(o => [o, o.position.clone()]);
+    const rest = [headG, legL, legR, armL, armR, legL.knee, legR.knee].map(o => [o, o.position.clone()]);
     // points checked against the ground each frame: [part, local point, radius]
     const probes = [[headG, new V3(0, 0, 0), 0.23]];
     for (const x of [-0.32, 0.32]) for (const y of [0.99, 1.73]) for (const z of [-0.18, 0.18]) probes.push([body, new V3(x, y, z), 0]);
     for (const a of [armL, armR]) probes.push([a, new V3(0, 0, 0), 0.1], [a, new V3(0, -0.7, 0), 0.09]);
-    for (const l of [legL, legR]) { probes.push([l, new V3(0, 0, 0), 0.13]); for (const x of [-0.135, 0.135]) for (const z of [-0.26, 0.14]) probes.push([l, new V3(x, -0.97, z), 0]); }
+    for (const l of [legL, legR]) { probes.push([l, new V3(0, 0, 0), 0.13], [l.knee, new V3(0, 0, 0), 0.13]); for (const x of [-0.135, 0.135]) for (const z of [-0.26, 0.14]) probes.push([l.knee, new V3(x, -0.51, z), 0]); }
     return { root, body, torso, headG, legL, legR, armL, armR, rest, probes, phase: Math.random() * 6 };
   }
   function makeRunner() {
     const tee = phong(0xffffff, { map: T.shirt, shininess: 4 }), skin = phong(0xd9a37c);
     const torso = [tee, tee, tee, tee, phong(0xffffff, { map: T.shirtBack, shininess: 4 }), phong(0xffffff, { map: T.shirtFront, shininess: 4 })];
-    const h = makeHuman({ torsoMats: torso, skin, pants: phong(0x2c3550), sleeve: tee, shoe: phong(0xf2f2f2), short: true });
+    const h = makeHuman({ torsoMats: torso, skin, pants: phong(0x4a6593), sleeve: tee, shoe: phong(0xf2f2f2), short: true });
     const hair = new THREE.Mesh(G.sphere, phong(0x2a1c14)); hair.scale.set(0.225, 0.17, 0.225); hair.position.set(0, 0.07, 0.02); h.headG.add(hair);
     const badge = new THREE.Mesh(G.box, phong(0xffffff)); badge.scale.set(0.1, 0.14, 0.02); badge.position.set(0.12, 1.42, -0.19); h.body.add(badge);
     return h;
   }
   function makeCowboy() {
-    const shirt = phong(0xffffff, { map: T.plaid }), jeans = phong(0x2f4a7a), boots = phong(0x5a3418), skin = phong(0xc98d66);
+    const shirt = phong(0xffffff, { map: T.plaid }), jeans = phong(0x5276ad), boots = phong(0x5a3418), skin = phong(0xc98d66);
     const h = makeHuman({ torsoMats: shirt, skin, pants: jeans, sleeve: shirt, shoe: boots });
     h.root.scale.setScalar(1.12);
     const hatMat = phong(0xa8743a, { shininess: 8 }), bandMat = phong(0x2a1a0e);
@@ -566,16 +569,21 @@
   }
   function animateRun(h, dt, rate, pose, pitch) {
     h.phase += dt * rate;
-    const s = Math.sin(h.phase);
-    let lean = -0.14, by = Math.abs(Math.cos(h.phase)) * 0.07, legA = s * 0.95, armA = s * 0.8;
-    if (pose === 'jump') { legA = 0; by = 0; lean = -0.05; }
-    if (pose === 'idle') { legA = 0; armA = Math.sin(h.phase * 0.3) * 0.05; by = 0; lean = 0; }
+    const ph = h.phase, s = Math.sin(ph);
+    let lean = -0.14, by = Math.abs(Math.cos(ph)) * 0.06, armA = s * 0.8;
+    if (pose === 'jump') { by = 0; lean = -0.05; }
+    if (pose === 'idle') { armA = Math.sin(ph * 0.3) * 0.05; by = 0; lean = 0; }
     const tgt = pose === 'slide' ? 1.15 - (pitch || 0) : lean;
     h.body.rotation.x = lerp(h.body.rotation.x, tgt, damp(18, dt));
     h.body.position.y = lerp(h.body.position.y, pose === 'slide' ? -0.12 : by, damp(18, dt));
-    if (pose === 'slide') { h.legL.rotation.x = 0.25; h.legR.rotation.x = 0.05; h.armL.rotation.x = 1.6; h.armR.rotation.x = 1.4; return; }
-    if (pose === 'jump') { h.legL.rotation.x = 0.7; h.legR.rotation.x = -0.4; h.armL.rotation.x = 2.6; h.armR.rotation.x = 2.4; return; }
-    h.legL.rotation.x = legA; h.legR.rotation.x = -legA; h.armL.rotation.x = -armA; h.armR.rotation.x = armA;
+    const legs = (tl, kl, tr, kr) => { h.legL.rotation.x = tl; h.legL.knee.rotation.x = kl; h.legR.rotation.x = tr; h.legR.knee.rotation.x = kr; };
+    if (pose === 'slide') { legs(0.3, -0.05, 0.15, -0.9); h.armL.rotation.x = 1.6; h.armR.rotation.x = 1.4; return; }
+    if (pose === 'jump') { legs(0.95, -1.5, -0.15, -0.5); h.armL.rotation.x = 2.6; h.armR.rotation.x = 2.4; return; }
+    if (pose === 'idle') { legs(0, 0, 0, 0); h.armL.rotation.x = -armA; h.armR.rotation.x = armA; return; }
+    // thighs swing +-0.65; the knee folds as the leg comes through behind the body
+    const kneeL = -0.15 - 1.25 * Math.max(0, Math.sin(ph - 1.1)), kneeR = -0.15 - 1.25 * Math.max(0, Math.sin(ph + Math.PI - 1.1));
+    legs(s * 0.65, kneeL, -s * 0.65, kneeR);
+    h.armL.rotation.x = -armA; h.armR.rotation.x = armA;
   }
 
   // ---------- scene: lights, sky, outdoor
@@ -1459,6 +1467,7 @@
   let rag = null;
   function startRagdoll(cause, hit) {
     const h = runner;
+    h.legL.knee.rotation.x = 0; h.legR.knee.rotation.x = 0;
     h.root.updateMatrixWorld(true);
     const at = (o, x, y, z) => o.localToWorld(new V3(x, y, z));
     const pos = { head: at(h.headG, 0, 0, 0), neck: at(h.body, 0, 1.7, 0), pelvis: at(h.body, 0, 0.95, 0),
