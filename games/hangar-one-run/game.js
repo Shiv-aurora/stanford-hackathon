@@ -708,6 +708,20 @@
       for (const z of [-380, -680]) { const f = new THREE.Mesh(new THREE.ShapeGeometry(new THREE.Shape(h2.map(p => new THREE.Vector2(p.x, p.y)).concat(h2.slice().reverse().map(p => new THREE.Vector2(-p.x, p.y))))), mat2); f.position.set(x, 0, z); g.add(f); }
     }
   }
+  const CAMPUS_BUILDINGS = [[-95, -10, 40, 14, 30], [-140, -90, 60, 18, 34], [-110, 75, 34, 10, 26], [-190, 10, 36, 16, 44], [95, 70, 44, 12, 30], [80, 10, 26, 9, 20], [-75, 140, 50, 12, 24]];
+  function insideHangarOne(x, z, pad) {
+    const r = HW + pad;
+    if (Math.abs(x) < r && z <= HZF && z >= HZF - HLEN) return true;           // straight body
+    return Math.hypot(x, z - HZF) < r || Math.hypot(x, z - (HZF - HLEN)) < r;     // domed ends
+  }
+  function treeBlocked(x, z, s, lots) {
+    if (insideHangarOne(x, z, s + 4)) return true;
+    if (Math.abs(x) < 14 + s && z > HZF - 10) return true;                       // run-up and tunnel ramp
+    if (Math.hypot(x - (HW + 18), z - (HZF + 4)) < 14 + s) return true;          // control tower
+    for (const [x0, x1, z0, z1] of lots) if (x > x0 - s - 2 && x < x1 + s + 2 && z < z0 + s + 2 && z > z1 - s - 2) return true;
+    for (const [bx, bz, w, , d] of CAMPUS_BUILDINGS) if (Math.abs(x - bx) < w / 2 + s + 1 && Math.abs(z - bz) < d / 2 + s + 1) return true;
+    return false;
+  }
   function buildCampus(g) {
     // NASA Ames side: parking lots, beige buildings, trees, the pressure spheres, the 80x120 wind tunnel
     const carGeo = new THREE.BoxGeometry(1.9, 1.4, 4.4);
@@ -723,7 +737,7 @@
     }
     cars.count = n; g.add(cars);
     const beige = phong(0xffffff, { map: T.windows }), flat = phong(0xd9cfb9);
-    for (const [x, z, w, h, d] of [[-95, -10, 40, 14, 30], [-140, -90, 60, 18, 34], [-110, 75, 34, 10, 26], [-190, 10, 36, 16, 44], [95, 70, 44, 12, 30], [80, 10, 26, 9, 20], [-75, 140, 50, 12, 24]]) {
+    for (const [x, z, w, h, d] of CAMPUS_BUILDINGS) {
       addMesh(g, G.box, [beige, beige, flat, flat, beige, beige], x, h / 2, z, w, h, d);
     }
     // the long arched wind-tunnel building behind the campus
@@ -735,11 +749,17 @@
     dish.position.set(-120, 18, -60); dish.rotation.x = -1.1; g.add(dish);
     const nfac = new THREE.Mesh(G.box, [phong(0x9a9c98), phong(0x9a9c98), phong(0x9a9c98), phong(0x9a9c98), phong(0xffffff, { map: T.louver }), phong(0x9a9c98)]);
     nfac.scale.set(260, 45, 60); nfac.position.set(-360, 22.5, -560); g.add(nfac);
+    // trees: keep them out of Hangar One (body plus rounded ends), the run-up, parking lots and buildings
     const trees = new THREE.InstancedMesh(G.sphere, phong(0x3f6b3a), 70);
+    trees.userData.spots = [];
     for (let i = 0; i < 70; i++) {
-      const x = rand(-260, -14) * (Math.random() < 0.25 ? -0.5 : 1), z = rand(-120, 160);
-      if (Math.abs(x) < 12) { dm.position.set(-30, -50, 0); } else dm.position.set(x, rand(3, 5), z);
-      const s = rand(3, 5.5); dm.scale.set(s, s * 1.1, s); dm.rotation.set(0, 0, 0); dm.updateMatrix(); trees.setMatrixAt(i, dm.matrix);
+      let x = 0, z = 0, s = 0;
+      for (let tries = 0; tries < 200; tries++) {
+        x = rand(-260, -14) * (Math.random() < 0.25 ? -0.5 : 1); z = rand(-120, 160); s = rand(3, 5.5);
+        if (!treeBlocked(x, z, s, lots)) break;
+      }
+      trees.userData.spots.push([x, z, s]);
+      dm.position.set(x, rand(3, 5), z); dm.scale.set(s, s * 1.1, s); dm.rotation.set(0, 0, 0); dm.updateMatrix(); trees.setMatrixAt(i, dm.matrix);
     }
     g.add(trees);
   }
@@ -1706,7 +1726,7 @@
     el.loading.hidden = true;
     last = performance.now();
     requestAnimationFrame(frame);
-    window.__hor = { get state() { return state; }, get P() { return P; }, get C() { return C; }, get rag() { return rag; }, get segs() { return segs; }, input, renderer, scene, camera, teleport(seg, d, lane) { P.seg = seg; P.d = d; P.lane = lane == null ? 1 : lane; P.x = P.tx = LANES[P.lane]; P.queuedTurn = false; ensureSegments(); camPos.set(0, 0, 0); camLook.set(0, 0, 0); } };
+    window.__hor = { get state() { return state; }, get P() { return P; }, get C() { return C; }, get rag() { return rag; }, get segs() { return segs; }, input, renderer, scene, camera, insideHangarOne, teleport(seg, d, lane) { P.seg = seg; P.d = d; P.lane = lane == null ? 1 : lane; P.x = P.tx = LANES[P.lane]; P.queuedTurn = false; ensureSegments(); camPos.set(0, 0, 0); camLook.set(0, 0, 0); } };
   }
   boot();
 })();
