@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Hangar One Underground</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Saira+Stencil+One&family=Barlow+Condensed:wght@400;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<style>
+/* Layout: full-bleed 3D canvas; HUD pinned to the corners; menus are a left-docked
+   panel styled like stenciled tunnel signage over the live scene. Single dark look. */
+:root {
+  --ink: #0b0d10;        /* tunnel black */
+  --panel: #12161bcc;    /* smoked glass */
+  --line: #2a3038;
+  --paper: #ece6d6;      /* stencil off-white */
+  --muted: #a39d8f;
+  --hazard: #f5c400;     /* safety yellow */
+  --nasa: #0b3d91;       /* insignia blue */
+  --signal: #fc3d21;     /* insignia red */
+  --volt: #7cc4ff;
+  --gas: #8dff5a;
+  --font-display: "Saira Stencil One", "Impact", "Arial Black", sans-serif;
+  --font-body: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", sans-serif;
+  --font-data: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  color-scheme: dark;
+}
+[hidden] { display: none !important; }
+html, body { height: 100%; margin: 0; background: var(--ink); color: var(--paper); overflow: hidden; }
+body { font-family: var(--font-body); font-size: 18px; -webkit-user-select: none; user-select: none; touch-action: none; -webkit-tap-highlight-color: transparent; }
+#app { position: fixed; inset: 0; }
+#c { display: block; width: 100%; height: 100%; }
+
+/* HUD */
+#hud { position: absolute; inset: 0 0 auto 0; display: flex; justify-content: space-between; align-items: flex-start;
+  padding-top: calc(12px + env(safe-area-inset-top, 0px));
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  pointer-events: none; text-shadow: 0 2px 6px #000a; }
+.hud-block { display: grid; gap: 2px; }
+.hud-label { font-family: var(--font-data); font-size: 11px; letter-spacing: .18em; color: var(--muted); }
+#score { font-family: var(--font-display); font-size: clamp(28px, 6vw, 44px); line-height: 1; color: var(--paper); font-variant-numeric: tabular-nums; }
+#dist { font-family: var(--font-data); font-size: 13px; color: var(--hazard); font-variant-numeric: tabular-nums; }
+.hud-right { display: flex; gap: 10px; align-items: center; pointer-events: auto; }
+.pins { display: flex; align-items: center; gap: 8px; padding: 6px 12px 6px 6px; border-radius: 999px; background: #000a; border: 1px solid var(--line); }
+.pin-ico { width: 26px; height: 26px; border-radius: 50%; background-size: cover; box-shadow: 0 0 0 2px #d4a93c; }
+#pins { font-family: var(--font-data); font-weight: 600; font-size: 18px; min-width: 2ch; font-variant-numeric: tabular-nums; }
+.icon-btn { width: 40px; height: 40px; border-radius: 10px; border: 1px solid var(--line); background: #000a; color: var(--paper);
+  font: 600 15px var(--font-data); cursor: pointer; display: grid; place-items: center; }
+.icon-btn:focus-visible, .btn:focus-visible { outline: 2px solid var(--hazard); outline-offset: 2px; }
+.icon-btn[aria-pressed="true"] { color: var(--muted); text-decoration: line-through; }
+
+#toast { position: absolute; left: 50%; top: 22%; transform: translateX(-50%); padding: 8px 18px; border-radius: 6px;
+  font: 700 clamp(18px, 4.4vw, 28px) var(--font-body); letter-spacing: .06em; text-transform: uppercase; white-space: nowrap;
+  background: var(--hazard); color: var(--ink); box-shadow: 0 6px 24px #0008; pointer-events: none; opacity: 0; transition: opacity .2s; }
+#toast.show { opacity: 1; }
+#yeehaw { position: absolute; left: 50%; bottom: 14%; transform: translateX(-50%) rotate(-4deg); pointer-events: none;
+  font: 400 clamp(34px, 9vw, 64px) var(--font-display); color: var(--hazard); -webkit-text-stroke: 2px var(--ink); text-shadow: 0 4px 0 var(--signal);
+  opacity: 0; transition: opacity .15s; }
+#yeehaw.show { opacity: 1; }
+#fx { position: absolute; inset: 0; pointer-events: none; opacity: 0; background: #fff; mix-blend-mode: screen; }
+#vignette { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse at 50% 55%, transparent 55%, #000a 100%); }
+
+/* Menu panels */
+.screen { position: absolute; inset: 0; display: flex; align-items: center; overflow-y: auto;
+  padding-block: calc(20px + env(safe-area-inset-top, 0px)) calc(20px + env(safe-area-inset-bottom, 0px));
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  background: linear-gradient(90deg, #07090ce6 0%, #07090cb3 38%, #07090c00 70%); touch-action: pan-y; }
+.card { width: min(560px, 100%); display: grid; gap: 18px; margin-block: auto; }
+.eyebrow { font-family: var(--font-data); font-size: 12px; letter-spacing: .2em; color: var(--hazard); text-transform: uppercase; }
+h1, h2 { font-family: var(--font-display); font-weight: 400; margin: 0; line-height: .9; text-wrap: balance; letter-spacing: .01em; }
+h1 { font-size: clamp(48px, 11vw, 92px); }
+h1 span { display: block; color: var(--hazard); font-size: .62em; }
+h2 { font-size: clamp(40px, 9vw, 68px); color: var(--hazard); }
+.lede { margin: 0; font-size: 20px; line-height: 1.35; max-width: 34em; color: var(--paper); }
+.stripe { height: 10px; border-radius: 2px; background: repeating-linear-gradient(-45deg, var(--hazard) 0 14px, var(--ink) 14px 28px); }
+.legend { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.legend > div { min-width: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+.legend b { display: block; font-family: var(--font-data); font-size: 12px; letter-spacing: .12em; margin-bottom: 4px; }
+.legend p { margin: 0; font-size: 15px; line-height: 1.25; color: var(--muted); }
+.legend .v b { color: var(--volt); } .legend .g b { color: var(--gas); } .legend .w b { color: var(--hazard); }
+.controls { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 16px; color: var(--muted); }
+kbd { font-family: var(--font-data); font-size: 13px; color: var(--paper); padding: 2px 7px; border: 1px solid var(--line); border-bottom-width: 3px; border-radius: 5px; background: #1a1f26; }
+.row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.btn { font: 700 22px var(--font-body); letter-spacing: .08em; text-transform: uppercase; padding: 12px 26px; border-radius: 6px; border: 0; cursor: pointer;
+  background: var(--hazard); color: var(--ink); box-shadow: 0 4px 0 #a88600; }
+.btn:active { transform: translateY(2px); box-shadow: 0 2px 0 #a88600; }
+.btn.ghost { background: transparent; color: var(--paper); box-shadow: inset 0 0 0 1px var(--line); }
+.best { font-family: var(--font-data); font-size: 13px; color: var(--muted); }
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.stats div { min-width: 0; padding: 10px 12px; border-top: 3px solid var(--hazard); background: var(--panel); }
+.stats span { display: block; font-family: var(--font-data); font-size: 11px; letter-spacing: .14em; color: var(--muted); }
+.stats strong { font-family: var(--font-data); font-size: 22px; font-variant-numeric: tabular-nums; }
+.newbest { color: var(--hazard); font-family: var(--font-data); font-size: 13px; letter-spacing: .14em; }
+#loading { position: absolute; inset: 0; display: grid; place-items: center; font: 600 14px var(--font-data); letter-spacing: .2em; color: var(--muted); background: var(--ink); }
+
+@media (max-width: 560px) {
+  .legend { grid-template-columns: 1fr; }
+  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .screen { background: linear-gradient(180deg, #07090cd9 0%, #07090cb3 100%); }
+  .lede { font-size: 18px; }
+}
+@media (prefers-reduced-motion: reduce) { #toast, #yeehaw { transition: none; } }
+</style>
+</head>
+<body>
+<div id="app">
+  <canvas id="c" aria-label="Game view"></canvas>
+  <div id="vignette"></div>
+  <div id="fx"></div>
+
+  <div id="hud" hidden>
+    <div class="hud-block">
+      <span class="hud-label">SCORE</span>
+      <span id="score">0</span>
+      <span id="dist">0 m</span>
+    </div>
+    <div class="hud-right">
+      <div class="pins" title="NASA pins collected"><span class="pin-ico"></span><span id="pins">0</span></div>
+      <button class="icon-btn" id="btnPause" type="button" aria-label="Pause">II</button>
+      <button class="icon-btn" id="btnMute" type="button" aria-label="Mute sound" aria-pressed="false">♪</button>
+    </div>
+  </div>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <div id="yeehaw" aria-hidden="true">YEEHAW!</div>
+
+  <section class="screen" id="title">
+    <div class="card">
+      <div class="eyebrow">NASA Ames Research Center · Moffett Field, CA</div>
+      <h1>Hangar One<span>Underground</span></h1>
+      <div class="stripe"></div>
+      <p class="lede">A man in a cowboy hat is chasing you across the airfield. The only way out is down, through the utility tunnels under Hangar One. Collect NASA pins and stay ahead of him.</p>
+      <div class="legend">
+        <div class="v"><b>HIGH VOLTAGE</b><p>Jump live cables. Slide under arcs. Dodge the switchgear.</p></div>
+        <div class="g"><b>POISON GAS</b><p>Leaking drums fill a lane with gas. Pick another lane.</p></div>
+        <div class="w"><b>WASPS</b><p>Slide under swarms at head height. Dodge the ones that fill a lane.</p></div>
+      </div>
+      <div class="controls">
+        <span><kbd>←</kbd> <kbd>→</kbd> change lanes, turn at junctions</span>
+        <span><kbd>↑</kbd> jump</span>
+        <span><kbd>↓</kbd> slide</span>
+        <span>Touch: swipe</span>
+      </div>
+      <div class="row">
+        <button class="btn" id="btnStart" type="button">Start running</button>
+        <span class="best" id="bestTitle"></span>
+      </div>
+    </div>
+  </section>
+
+  <section class="screen" id="pause" hidden>
+    <div class="card">
+      <div class="eyebrow">Sublevel B</div>
+      <h2>Paused</h2>
+      <div class="row">
+        <button class="btn" id="btnResume" type="button">Resume</button>
+        <button class="btn ghost" id="btnQuit" type="button">Quit to title</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="screen" id="over" hidden>
+    <div class="card">
+      <div class="eyebrow" id="overEyebrow">Run over</div>
+      <h2 id="overTitle">Zapped</h2>
+      <p class="lede" id="overLine"></p>
+      <div class="stats">
+        <div><span>SCORE</span><strong id="oScore">0</strong></div>
+        <div><span>DISTANCE</span><strong id="oDist">0 m</strong></div>
+        <div><span>PINS</span><strong id="oPins">0</strong></div>
+        <div><span>BEST</span><strong id="oBest">0</strong></div>
+      </div>
+      <div class="newbest" id="newBest" hidden>NEW BEST RUN</div>
+      <div class="row">
+        <button class="btn" id="btnAgain" type="button">Run again</button>
+        <button class="btn ghost" id="btnTitle" type="button">Title</button>
+      </div>
+    </div>
+  </section>
+
+  <div id="loading">LOADING TUNNELS…</div>
+</div>
+<script src="lib/three.min.js"></script>
+<script src="game.js"></script>
+</body>
+</html>
